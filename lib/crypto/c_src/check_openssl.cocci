@@ -85,6 +85,7 @@
 // EVP_sha3_256
 // EVP_sha3_384
 // EVP_sha3_512
+// EVP_shake128
 // EVP_sha512
 // OpenSSL_version
 // OpenSSL_version_num

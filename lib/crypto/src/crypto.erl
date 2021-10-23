@@ -382,7 +382,7 @@
 
 -type sha1() :: sha .
 -type sha2() :: sha224 | sha256 | sha384 | sha512 .
--type sha3() :: sha3_224 | sha3_256 | sha3_384 | sha3_512 .
+-type sha3() :: sha3_224 | sha3_256 | sha3_384 | sha3_512 | shake128 .
 -type blake2() :: blake2b | blake2s .
 
 -type compatibility_only_hash() :: md5 | md4 .
