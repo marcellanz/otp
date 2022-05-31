@@ -33,7 +33,7 @@
          end_per_group/2,
          init_per_testcase/2,
          end_per_testcase/2,
-         
+
          %% Test cases:
          aead_bad_tag/1,
          aead_ng/1,
@@ -76,6 +76,8 @@
          generate_compute/1,
          hash/0,
          hash/1,
+         hash_xof/0,
+         hash_xof/1,
          hash_info/0,
          hash_info/1,
          info/1,
@@ -196,7 +198,7 @@ all() ->
 
 -define(NEW_CIPHER_TYPE_SCHEMA,
        ).
-        
+
 groups() ->
     [{non_fips, [], [
                      {group, blake2b},
@@ -218,6 +220,7 @@ groups() ->
                      {group, sha3_384},
                      {group, sha3_512},
                      {group, sha512},
+                     {group, shake128},
                      {group, sha},
 
                      {group, dh},
@@ -336,6 +339,8 @@ groups() ->
      {sha3_256,             [], [hash]},
      {sha3_384,             [], [hash]},
      {sha3_512,             [], [hash]},
+     {shake128,             [], [hash_xof]},
+%%     {shake256,             [], [hash_xof]},
      {blake2b,              [], [hash]},
      {blake2s,              [], [hash]},
      {no_blake2b,           [], [no_hash]},
@@ -468,7 +473,7 @@ init_per_suite(Config) ->
 		    crypto:rand_seed(<< <<Bin/binary>> || _ <- lists:seq(1,16) >>),
 		    Config
 	    end
-                  
+
     catch C:E:S ->
             ct:log("~p ~p~n~p", [C,E,S]),
 	    {fail, "Crypto did not start"}
@@ -477,8 +482,6 @@ init_per_suite(Config) ->
 is_ok(ok) -> ok;
 is_ok({error, already_started}) -> ok;
 is_ok({error,{already_started,crypto}}) -> ok.
-
-    
 
 end_per_suite(_Config) ->
     application:stop(crypto).
@@ -683,7 +686,7 @@ make_crypto_key(String) ->
     {[K1,K2,K3],IVec,8}.
 %%--------------------------------------------------------------------
 %% Test that a spawned node has initialized the cache
--define(at_node, 
+-define(at_node,
         (fun(N, M, F, As) ->
                  R = rpc:call(N, M, F, As),
                  ct:log("~p ~p ~p:~p(~s) = ~p", [?LINE,N,M,F,args2list(As), R]),
@@ -725,6 +728,14 @@ hash(Config) when is_list(Config) ->
     hash(Type, Msgs, Digests),
     hash(Type, lists:map(fun iolistify/1, Msgs), Digests),
     hash_increment(Type, Inc, IncrDigest).
+
+hash_xof() ->
+  [{doc, "Test all different hash_xof functions"}].
+hash_xof(Config) when is_list(Config) ->
+  {Type, MsgsLE, Digests, Lengths} = proplists:get_value(hash_xof, Config),
+  Msgs = lazy_eval(MsgsLE),
+  hash_xof(Type, Msgs, Digests, Lengths).
+
 %%--------------------------------------------------------------------
 no_hash() ->
     [{doc, "Test all disabled hash functions"}].
@@ -1021,7 +1032,7 @@ aead_ng(Config) when is_list(Config) ->
 	end,
     do_cipher_tests(fun aead_cipher_ng/1, FilteredAEADs ++ spec_0_bytes(Config)).
 
-%%-------------------------------------------------------------------- 
+%%--------------------------------------------------------------------
 aead_bad_tag(Config) ->
     [_|_] = AEADs = lazy_eval(proplists:get_value(cipher, Config)),
     FilteredAEADs =
@@ -1038,7 +1049,7 @@ aead_bad_tag(Config) ->
 	end,
     do_cipher_tests(fun aead_cipher_bad_tag/1, FilteredAEADs).
 
-%%-------------------------------------------------------------------- 
+%%--------------------------------------------------------------------
 sign_verify() ->
      [{doc, "Sign/verify digital signatures"}].
 sign_verify(Config) when is_list(Config) ->
@@ -1052,7 +1063,7 @@ no_sign_verify(Config) when is_list(Config) ->
     [SignVerifyHd|_] = proplists:get_value(sign_verify, Config),
     notsup(fun do_sign_verify/1, [SignVerifyHd]).
 
-%%-------------------------------------------------------------------- 
+%%--------------------------------------------------------------------
 public_encrypt() ->
      [{doc, "Test public_encrypt/decrypt "}].
 public_encrypt(Config) when is_list(Config) ->
@@ -1060,7 +1071,7 @@ public_encrypt(Config) when is_list(Config) ->
     Params = proplists:get_value(pub_pub_encrypt, Config, []),
     lists:foreach(fun do_public_encrypt/1, Params).
 
-%%-------------------------------------------------------------------- 
+%%--------------------------------------------------------------------
 private_encrypt() ->
      [{doc, "Test private_encrypt/decrypt functions. "}].
 private_encrypt(Config) when is_list(Config) ->
@@ -1304,7 +1315,7 @@ cipher_info(Config) when is_list(Config) ->
         false ->
             ct:fail('Cipher unsupported',[])
     end.
-                                                                         
+
 cipher_info_prop_aead_attr() ->
     [{doc, "crypto cipher_info prop_aead attribute testing"}].
 cipher_info_prop_aead_attr(Config) when is_list(Config) ->
@@ -1367,13 +1378,23 @@ hash(Type, [Msg | RestMsg], [Digest| RestDigest]) ->
 	    ct:fail({{crypto, hash, [Type, Msg]}, {expected, Digest}, {got, Other}})
     end.
 
+hash_xof(_, [], [], []) ->
+  ok;
+hash_xof(Type, [Msg | RestMsg], [Digest | RestDigest], [Length | RestLength]) ->
+  case crypto:hash_xof(Type, Msg, Length) of
+    Digest ->
+      hash_xof(Type, RestMsg, RestDigest, RestLength);
+    Other ->
+      ct:fail({{crypto, hash_xof, [Type, Msg, Length]}, {expected, Digest}, {got, Other}})
+  end.
+
 hash_increment(Type, Increments, Digest) ->
     State = crypto:hash_init(Type),
     case hash_increment(State, Increments) of
 	Digest ->
 	    ok;
 	Other ->
-	    ct:fail({{crypto, "hash_init/update/final", [Type, Increments]}, {expected, Digest}, {got, Other}})  
+	    ct:fail({{crypto, "hash_init/update/final", [Type, Increments]}, {expected, Digest}, {got, Other}})
     end.
 
 hash_increment(State, []) ->
@@ -1593,8 +1614,7 @@ do_public_encrypt({Type, Public, Private, Msg, Padding}) ->
             ct:log("~p:~p EXC 2. ~p:~p", [?MODULE,?LINE,CC,EE]),
             timer:sleep(100),
             ct:fail({{crypto, public_encrypt, [Type, Msg, Public, Padding]}, {got, {CC,EE}}})
-    end. 
-
+    end.
 
 do_private_encrypt({Type, Public, Private, Msg, Padding}) ->
     ct:log("do_private_encrypt Type=~p, Padding=~p,~nPublic = ~p,~nPrivate = ~p,~nMsg = ~p.",
@@ -1633,14 +1653,12 @@ do_generate_compute({srp = Type, UserPrivate, UserGenParams, UserComParams,
     SessionKey = crypto:compute_key(Type, UserPublic, {HostPublic, HostPrivate},
 				    HostComParam);
 
-
-
 do_generate_compute({dh, P, G}) ->
     {UserPub, UserPriv} = crypto:generate_key(dh, [P, G]),
     {HostPub, HostPriv} = crypto:generate_key(dh, [P, G]),
     SharedSecret = crypto:compute_key(dh, HostPub, UserPriv, [P, G]),
     SharedSecret = crypto:compute_key(dh, UserPub, HostPriv, [P, G]).
-    
+
 do_compute({ecdh = Type, Pub, Priv, Curve, SharedSecret}) ->
     ct:log("~p ~p", [Type,Curve]),
     Secret = crypto:compute_key(Type, Pub, Priv, Curve),
@@ -1719,7 +1737,7 @@ decstr2int(S) ->
     list_to_integer(S).
 
 is_supported(Group) ->
-    lists:member(Group, lists:append([Algo ||  {_, Algo}  <- crypto:supports()])). 
+    lists:member(Group, lists:append([Algo ||  {_, Algo}  <- crypto:supports()])).
 
 iolistify(X) ->
     iolistify1(lazy_eval(X)).
@@ -1750,9 +1768,9 @@ mod_pow_aux_test(B, E, M, N) ->
 
 %% mod_exp in erlang (copied from jungerl's ssh_math.erl)
 ipow(A, B, M) when M > 0, B >= 0 ->
-    if A == 1 -> 
+    if A == 1 ->
  	    1;
-       true -> 
+       true ->
  	    ipow(A, B, M, 1)
     end.
 
@@ -1931,7 +1949,7 @@ group_config(sha = Type, Config) ->
     Digests = rfc_4634_sha_digests() ++ [long_sha_digest()],
     [{hash, {Type, Msgs, Digests}} | Config];
 group_config(sha224 = Type, Config) ->
-    Msgs = [rfc_4634_test1(), rfc_4634_test2_1()], 
+    Msgs = [rfc_4634_test1(), rfc_4634_test2_1()],
     Digests = rfc_4634_sha224_digests(),
     [{hash, {Type, Msgs, Digests}} | Config];
 group_config(sha256 = Type, Config) ->
@@ -1958,6 +1976,9 @@ group_config(sha3_384 = Type, Config) ->
 group_config(sha3_512 = Type, Config) ->
     {Msgs,Digests} = sha3_test_vectors(Type),
     [{hash, {Type, Msgs, Digests}} | Config];
+group_config(shake128 = Type, Config) ->
+    {Msgs,Digests,Lengths} = sha3_shake128_test_vectors(Type),
+    [{hash_xof, {Type, Msgs, Digests, Lengths}} | Config];
 group_config(blake2b = Type, Config) ->
     {Msgs, Digests} = blake2_test_vectors(Type),
     [{hash, {Type, Msgs, Digests}} | Config];
@@ -2002,10 +2023,10 @@ group_config(rsa, Config) ->
      | Config];
 group_config(dss = Type, Config) ->
     Msg = dss_plain(),
-    Public = dss_params() ++ [dss_public()], 
-    Private = dss_params() ++ [dss_private()], 
+    Public = dss_params() ++ [dss_public()],
+    Private = dss_params() ++ [dss_private()],
     SupportedHashs = proplists:get_value(hashs, crypto:supports(), []),
-    DssHashs = 
+    DssHashs =
         case crypto:info_lib() of
             [{<<"OpenSSL">>,LibVer,_}] when is_integer(LibVer), LibVer > 16#10001000 ->
                 [sha, sha224, sha256, sha384, sha512];
@@ -2014,7 +2035,7 @@ group_config(dss = Type, Config) ->
             _Else ->
                 [sha]
         end,
-    SignVerify = [{Type, Hash, Public, Private, Msg} 
+    SignVerify = [{Type, Hash, Public, Private, Msg}
                   || Hash <- DssHashs,
                      lists:member(Hash, SupportedHashs)],
     MsgPubEnc = <<"7896345786348 Asldi">>,
@@ -2025,7 +2046,7 @@ group_config(ecdsa = Type, Config) ->
     Msg = ec_msg(),
     SupportedHashs = proplists:get_value(hashs, crypto:supports(), []),
     DssHashs = [sha, sha224, sha256, sha384, sha512],
-    SignVerify = [{Type, Hash, Public, Private, Msg} 
+    SignVerify = [{Type, Hash, Public, Private, Msg}
                   || Hash <- DssHashs,
                      lists:member(Hash, SupportedHashs)],
     MsgPubEnc = <<"7896345786348 Asldi">>,
@@ -2036,7 +2057,7 @@ group_config(Type, Config) when Type == ed25519 ; Type == ed448 ->
     Generate = lists:map(fun({Curve, _Hash, Priv, Pub, _Msg, _Signature}) ->
                              {eddsa, Curve, Priv, Pub}
                          end, TestVectors),
-    [{sign_verify,TestVectors}, {generate, Generate} | Config]; 
+    [{sign_verify,TestVectors}, {generate, Generate} | Config];
 group_config(srp, Config) ->
     GenerateCompute = [srp3(), srp6(), srp6a(), srp6a_smaller_prime()],
     [{generate_compute, GenerateCompute} | Config];
@@ -2196,9 +2217,9 @@ rsa_opt_is_supported(Opt, Sup) ->
 
 
 rfc_1321_msgs() ->
-    [<<"">>, 
+    [<<"">>,
      <<"a">>,
-     <<"abc">>, 
+     <<"abc">>,
      <<"message digest">>,
      <<"abcdefghijklmnopqrstuvwxyz">>,
      <<"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789">>,
@@ -2332,7 +2353,30 @@ sha3_test_vectors(sha3_512) ->
      ]
     }.
 
+%%% https://csrc.nist.gov/projects/cryptographic-algorithm-validation-program/secure-hashing
+sha3_shake128_msgs() ->
+    [hexstr2bin(""),
+     hexstr2bin("d9e8"),
+     hexstr2bin("5d8f84b2f208b58a68e88ce8efb543a8404f0ec0c9805c760ad359d13faab84d3f8bb1d2a4bb45e72c0ec9245ffda2e572f94e466cffa44b876d5c5ed914d1ff338e06b74ad1e74d1405d23d759356661b7f3b03a7f7c2dc0d2c2dbe3d60822803408d472b752424ea76af1d79a0e7920388dde0c1903e9364b8d6d7b3b75430754b4d6b91cd83d5740866aab34bdbd0f1bd3dc504f1a1d753ba5f938241ce7f52544e0cc2018cc67b6401ce6abdbc8aafc5629bb643730fa3daced8f425787d61069910073ac760c631876fe81d1127034a544820ad3aa51cbf2d904f8cda936c063561a8a0bd0b1f1801777394630fb6f11cb68a588000861283a2dc9d7d2739ff2ae5ed5af5304cc176cd544a39a99064c1cb3b6bcc88a97ad9f6e381e8a3929781861e91f73516d3ee59d3661b5f584b4b717d0fa7a54da03674ac5fa36d3d76412a826c4c8445f7720337119198"),
+     hexstr2bin("1822b7cc3c4ea4f2440a362b117f808a"),
+     hexstr2bin("0a13ad2c7a239b4ba73ea6592ae84ea9")
+    ].
 
+sha3_shake128_test_vectors(shake128) ->
+    {sha3_shake128_msgs(),
+      [hexstr2bin("7f9c2ba4e88f827d616045507605853e"),
+       hexstr2bin("c7211512340734235bb8d3c4651495aa"),
+       hexstr2bin("b4813895ae01b43c9d9ed85a8b03aaf4"),
+       hexstr2bin("19e740d7d87bc322edeee86a05eb59b64bb86f90dc7b98f781720b7cac37fdaf293ce6bd047a14fe"),
+       hexstr2bin("5feaf99c15f48851943ff9baa6e5055d8377f0dd347aa4dbece51ad3a6d9ce0c01aee9fe2260b80a4673a909b532adcdd1e421c32d6460535b5fe392a58d2634979a5a104d6c470aa3306c400b061db91c463b2848297bca2bc26d1864ba49d7ff949ebca50fbf79a5e63716dc82b600bd52ca7437ed774d169f6bf02e46487956fba2230f34cd2a0485484d")
+    ],
+      [128,
+       128,
+       128,
+       320,
+       1120
+      ]
+    }.
 
 %%% http://www.wolfgang-ehrhardt.de/hmac-sha3-testvectors.html
 
@@ -2343,10 +2387,10 @@ hmac_sha3(Type) ->
             sha3_384 -> 3;
             sha3_512 -> 4
         end,
-    [{hmac, Type, hexstr2bin(Key), hexstr2bin(Data), hexstr2bin(element(N,Hmacs))} 
+    [{hmac, Type, hexstr2bin(Key), hexstr2bin(Data), hexstr2bin(element(N,Hmacs))}
      || {Key,Data,Hmacs} <- hmac_sha3_data()].
 
-hmac_sha3_data() ->    
+hmac_sha3_data() ->
     [
      {"0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b 0b0b0b0b",
       "4869205468657265",
@@ -2448,7 +2492,7 @@ rfc_4634_test2() ->
     A2 =rfc_4634_test2_2a(),
     B2 = rfc_4634_test2_2b(),
     <<A2/binary, B2/binary>>.
- 
+
 rfc_4634_sha_digests()->
      [hexstr2bin("A9993E364706816ABA3E25717850C26C9CD0D89D"),
       hexstr2bin("84983E441C3BD26EBAAE4AA1F95129E5E54670F1")].
@@ -2466,7 +2510,7 @@ rfc_4634_sha384_digests() ->
     [hexstr2bin("CB00753F45A35E8BB5A03D699AC65007272C32AB0EDED1631A8B605A43FF5BED8086072BA1E7CC2358BAECA134C825A7"),
      hexstr2bin("09330C33F71147E83D192FC782CD1B4753111B173B3B05D22FA08086E3B0F712FCC7C71A557E2DB966C3E9FA91746039")
     ].
-rfc_4634_sha512_digests() -> 
+rfc_4634_sha512_digests() ->
     [hexstr2bin("DDAF35A193617ABACC417349AE20413112E6FA4E89A97EA2"
 		"0A9EEEE64B55D39A2192992A274FC1A836BA3C23A3FEEBBD"
 		"454D4423643CE80E2A9AC94FA54CA49F"),
@@ -2612,7 +2656,7 @@ rfc_4231_keys() ->
      binary:copy(<<16#aa>>, 131),
      binary:copy(<<16#aa>>, 131)
     ].
-    
+
 rfc_4231_msgs() ->
     [<<"Hi There">>,
      <<"what do ya want for nothing?">>,
@@ -2624,7 +2668,7 @@ rfc_4231_msgs() ->
        "han block-size data. The key needs to be hashed before being use",
        "d by the HMAC algorithm.">>
     ].
-    
+
 rfc4231_hmac_sha224() ->
     [hexstr2bin("896fb1128abbdf196832107cd49df33f"
 		       "47b4b1169912ba4f53684b22"),
@@ -2701,20 +2745,20 @@ rfc4231_hmac_sha512() ->
 		"b6022cac3c4982b10d5eeb55c3e4de15"
 		"134676fb6de0446065c97440fa8c6a58")].
 des_cbc(_) ->
-    [{des_cbc, 
-     hexstr2bin("0123456789abcdef"), 
+    [{des_cbc,
+     hexstr2bin("0123456789abcdef"),
      hexstr2bin("1234567890abcdef"),
      <<"Now is the time for all ">> }].
-      
+
 des_cfb(_) ->
-    [{des_cfb, 
+    [{des_cfb,
      hexstr2bin("0123456789abcdef"),
      hexstr2bin("1234567890abcdef"),
      <<"Now is the">>}].
 
 des3_cbc(_) ->
     [{des3_cbc,
-     [hexstr2bin("0123456789abcdef"), 
+     [hexstr2bin("0123456789abcdef"),
       hexstr2bin("fedcba9876543210"),
       hexstr2bin("0f2d4b6987a5c3e1")],
      hexstr2bin("1234567890abcdef"),
@@ -2732,7 +2776,7 @@ des_ede3(_) ->
 
 des_ede3_cbc(_) ->
     [{des_ede3_cbc,
-     [hexstr2bin("0123456789abcdef"), 
+     [hexstr2bin("0123456789abcdef"),
       hexstr2bin("fedcba9876543210"),
       hexstr2bin("0f2d4b6987a5c3e1")],
      hexstr2bin("1234567890abcdef"),
@@ -2887,7 +2931,7 @@ aes_256_cfb128(Config) ->
 
 blowfish_cbc(_) ->
     [{blowfish_cbc,
-      hexstr2bin("0123456789ABCDEFF0E1D2C3B4A59687"), 
+      hexstr2bin("0123456789ABCDEFF0E1D2C3B4A59687"),
       hexstr2bin("FEDCBA9876543210"),
       hexstr2bin("37363534333231204E6F77206973207468652074696D6520666F722000000000")
      }].
@@ -2895,109 +2939,109 @@ blowfish_cbc(_) ->
 blowfish_ecb(_) ->
     [
      {blowfish_ecb,
-      hexstr2bin("0000000000000000"), 
+      hexstr2bin("0000000000000000"),
       hexstr2bin("0000000000000000")},
      {blowfish_ecb,
-      hexstr2bin("FFFFFFFFFFFFFFFF"), 
+      hexstr2bin("FFFFFFFFFFFFFFFF"),
       hexstr2bin("FFFFFFFFFFFFFFFF")},
      {blowfish_ecb,
-      hexstr2bin("3000000000000000"), 
+      hexstr2bin("3000000000000000"),
       hexstr2bin("1000000000000001")},
      {blowfish_ecb,
-      hexstr2bin("1111111111111111"), 
+      hexstr2bin("1111111111111111"),
       hexstr2bin("1111111111111111")},
      {blowfish_ecb,
-      hexstr2bin("0123456789ABCDEF"), 
+      hexstr2bin("0123456789ABCDEF"),
       hexstr2bin("1111111111111111")},
      {blowfish_ecb,
-      hexstr2bin("0000000000000000"), 
+      hexstr2bin("0000000000000000"),
       hexstr2bin("0000000000000000")},
      {blowfish_ecb,
-      hexstr2bin("FEDCBA9876543210"), 
+      hexstr2bin("FEDCBA9876543210"),
       hexstr2bin("0123456789ABCDEF")},
      {blowfish_ecb,
-      hexstr2bin("7CA110454A1A6E57"), 
+      hexstr2bin("7CA110454A1A6E57"),
       hexstr2bin("01A1D6D039776742")},
      {blowfish_ecb,
-      hexstr2bin("0131D9619DC1376E"), 
+      hexstr2bin("0131D9619DC1376E"),
       hexstr2bin("5CD54CA83DEF57DA")},
      {blowfish_ecb,
-      hexstr2bin("07A1133E4A0B2686"), 
+      hexstr2bin("07A1133E4A0B2686"),
       hexstr2bin("0248D43806F67172")},
      {blowfish_ecb,
-      hexstr2bin("3849674C2602319E"), 
+      hexstr2bin("3849674C2602319E"),
       hexstr2bin("51454B582DDF440A")},
      {blowfish_ecb,
-      hexstr2bin("04B915BA43FEB5B6"), 
+      hexstr2bin("04B915BA43FEB5B6"),
       hexstr2bin("42FD443059577FA2")},
      {blowfish_ecb,
-      hexstr2bin("0113B970FD34F2CE"), 
+      hexstr2bin("0113B970FD34F2CE"),
       hexstr2bin("059B5E0851CF143A")},
      {blowfish_ecb,
-      hexstr2bin("0170F175468FB5E6"), 
+      hexstr2bin("0170F175468FB5E6"),
       hexstr2bin("0756D8E0774761D2")},
      {blowfish_ecb,
-      hexstr2bin("43297FAD38E373FE"), 
+      hexstr2bin("43297FAD38E373FE"),
       hexstr2bin("762514B829BF486A")},
      {blowfish_ecb,
-      hexstr2bin("07A7137045DA2A16"), 
+      hexstr2bin("07A7137045DA2A16"),
       hexstr2bin("3BDD119049372802")},
      {blowfish_ecb,
-      hexstr2bin("04689104C2FD3B2F"), 
+      hexstr2bin("04689104C2FD3B2F"),
       hexstr2bin("26955F6835AF609A")},
      {blowfish_ecb,
-      hexstr2bin("37D06BB516CB7546"), 
+      hexstr2bin("37D06BB516CB7546"),
       hexstr2bin("164D5E404F275232")},
      {blowfish_ecb,
-      hexstr2bin("1F08260D1AC2465E"), 
+      hexstr2bin("1F08260D1AC2465E"),
       hexstr2bin("6B056E18759F5CCA")},
      {blowfish_ecb,
-      hexstr2bin("584023641ABA6176"), 
+      hexstr2bin("584023641ABA6176"),
       hexstr2bin("004BD6EF09176062")},
      {blowfish_ecb,
-      hexstr2bin("025816164629B007"), 
+      hexstr2bin("025816164629B007"),
       hexstr2bin("480D39006EE762F2")},
      {blowfish_ecb,
-      hexstr2bin("49793EBC79B3258F"), 
+      hexstr2bin("49793EBC79B3258F"),
       hexstr2bin("437540C8698F3CFA")},
      {blowfish_ecb,
-      hexstr2bin("018310DC409B26D6"), 
+      hexstr2bin("018310DC409B26D6"),
       hexstr2bin("1D9D5C5018F728C2")},
      {blowfish_ecb,
-      hexstr2bin("1C587F1C13924FEF"), 
+      hexstr2bin("1C587F1C13924FEF"),
       hexstr2bin("305532286D6F295A")},
      {blowfish_ecb,
-      hexstr2bin("0101010101010101"), 
+      hexstr2bin("0101010101010101"),
       hexstr2bin("0123456789ABCDEF")},
      {blowfish_ecb,
-      hexstr2bin("1F1F1F1F0E0E0E0E"), 
+      hexstr2bin("1F1F1F1F0E0E0E0E"),
       hexstr2bin("0123456789ABCDEF")},
      {blowfish_ecb,
-      hexstr2bin("E0FEE0FEF1FEF1FE"), 
+      hexstr2bin("E0FEE0FEF1FEF1FE"),
       hexstr2bin("0123456789ABCDEF")},
      {blowfish_ecb,
-      hexstr2bin("0000000000000000"), 
+      hexstr2bin("0000000000000000"),
       hexstr2bin("FFFFFFFFFFFFFFFF")},
      {blowfish_ecb,
-      hexstr2bin("FFFFFFFFFFFFFFFF"), 
+      hexstr2bin("FFFFFFFFFFFFFFFF"),
       hexstr2bin("0000000000000000")},
      {blowfish_ecb,
-      hexstr2bin("0123456789ABCDEF"), 
+      hexstr2bin("0123456789ABCDEF"),
       hexstr2bin("0000000000000000")},
      {blowfish_ecb,
-      hexstr2bin("FEDCBA9876543210"), 
+      hexstr2bin("FEDCBA9876543210"),
       hexstr2bin("FFFFFFFFFFFFFFFF")}
     ].
 
 blowfish_cfb64(_) ->
     [{blowfish_cfb64,
-      hexstr2bin("0123456789ABCDEFF0E1D2C3B4A59687"), 
+      hexstr2bin("0123456789ABCDEFF0E1D2C3B4A59687"),
       hexstr2bin("FEDCBA9876543210"),
       hexstr2bin("37363534333231204E6F77206973207468652074696D6520666F722000")
      }].
 blowfish_ofb64(_) ->
     [{blowfish_ofb64,
-      hexstr2bin("0123456789ABCDEFF0E1D2C3B4A59687"), 
+      hexstr2bin("0123456789ABCDEFF0E1D2C3B4A59687"),
       hexstr2bin("FEDCBA9876543210"),
       hexstr2bin("37363534333231204E6F77206973207468652074696D6520666F722000")
      }].
@@ -3010,49 +3054,49 @@ rc4(_) ->
 
 aes_128_ctr(_) ->
     [  %% F.5.3  CTR-AES192.Encrypt
-       {aes_128_ctr, hexstr2bin("2b7e151628aed2a6abf7158809cf4f3c"), 
-	hexstr2bin("f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff"), 
+       {aes_128_ctr, hexstr2bin("2b7e151628aed2a6abf7158809cf4f3c"),
+	hexstr2bin("f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff"),
 	hexstr2bin("6bc1bee22e409f96e93d7e117393172a")},
-       {aes_128_ctr, hexstr2bin("2b7e151628aed2a6abf7158809cf4f3c"), 
-	hexstr2bin("f0f1f2f3f4f5f6f7f8f9fafbfcfdff00"), 
+       {aes_128_ctr, hexstr2bin("2b7e151628aed2a6abf7158809cf4f3c"),
+	hexstr2bin("f0f1f2f3f4f5f6f7f8f9fafbfcfdff00"),
 	hexstr2bin("ae2d8a571e03ac9c9eb76fac45af8e51")},
-       {aes_128_ctr, hexstr2bin("2b7e151628aed2a6abf7158809cf4f3c"), 
-	hexstr2bin("f0f1f2f3f4f5f6f7f8f9fafbfcfdff01"), 
+       {aes_128_ctr, hexstr2bin("2b7e151628aed2a6abf7158809cf4f3c"),
+	hexstr2bin("f0f1f2f3f4f5f6f7f8f9fafbfcfdff01"),
 	hexstr2bin("30c81c46a35ce411e5fbc1191a0a52ef") },
-       {aes_128_ctr, hexstr2bin("2b7e151628aed2a6abf7158809cf4f3c"), 
-	hexstr2bin("f0f1f2f3f4f5f6f7f8f9fafbfcfdff02"), 
+       {aes_128_ctr, hexstr2bin("2b7e151628aed2a6abf7158809cf4f3c"),
+	hexstr2bin("f0f1f2f3f4f5f6f7f8f9fafbfcfdff02"),
 	hexstr2bin("f69f2445df4f9b17ad2b417be66c3710")}
     ].
-       
+
 aes_192_ctr(_) ->
     [ %% F.5.3  CTR-AES192.Encrypt
-      {aes_192_ctr, hexstr2bin("8e73b0f7da0e6452c810f32b809079e562f8ead2522c6b7b"), 
-       hexstr2bin("f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff"), 
+      {aes_192_ctr, hexstr2bin("8e73b0f7da0e6452c810f32b809079e562f8ead2522c6b7b"),
+       hexstr2bin("f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff"),
        hexstr2bin("6bc1bee22e409f96e93d7e117393172a")},
-      {aes_192_ctr, hexstr2bin("8e73b0f7da0e6452c810f32b809079e562f8ead2522c6b7b"), 
-       hexstr2bin("f0f1f2f3f4f5f6f7f8f9fafbfcfdff00"), 
+      {aes_192_ctr, hexstr2bin("8e73b0f7da0e6452c810f32b809079e562f8ead2522c6b7b"),
+       hexstr2bin("f0f1f2f3f4f5f6f7f8f9fafbfcfdff00"),
        hexstr2bin("ae2d8a571e03ac9c9eb76fac45af8e51")},
-      {aes_192_ctr, hexstr2bin("8e73b0f7da0e6452c810f32b809079e562f8ead2522c6b7b"), 
-       hexstr2bin("f0f1f2f3f4f5f6f7f8f9fafbfcfdff01"), 
+      {aes_192_ctr, hexstr2bin("8e73b0f7da0e6452c810f32b809079e562f8ead2522c6b7b"),
+       hexstr2bin("f0f1f2f3f4f5f6f7f8f9fafbfcfdff01"),
 	hexstr2bin("30c81c46a35ce411e5fbc1191a0a52ef")},
-      {aes_192_ctr, hexstr2bin("8e73b0f7da0e6452c810f32b809079e562f8ead2522c6b7b"), 
-       hexstr2bin("f0f1f2f3f4f5f6f7f8f9fafbfcfdff02"), 
+      {aes_192_ctr, hexstr2bin("8e73b0f7da0e6452c810f32b809079e562f8ead2522c6b7b"),
+       hexstr2bin("f0f1f2f3f4f5f6f7f8f9fafbfcfdff02"),
        hexstr2bin("f69f2445df4f9b17ad2b417be66c3710")}
     ].
-       
+
 aes_256_ctr(_) ->
     [ %% F.5.5  CTR-AES256.Encrypt
-      {aes_256_ctr, hexstr2bin("603deb1015ca71be2b73aef0857d77811f352c073b6108d72d9810a30914dff4"), 
-       hexstr2bin("f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff"), 
+      {aes_256_ctr, hexstr2bin("603deb1015ca71be2b73aef0857d77811f352c073b6108d72d9810a30914dff4"),
+       hexstr2bin("f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff"),
        hexstr2bin("6bc1bee22e409f96e93d7e117393172a")},
-      {aes_256_ctr, hexstr2bin("603deb1015ca71be2b73aef0857d77811f352c073b6108d72d9810a30914dff4"), 
-       hexstr2bin("f0f1f2f3f4f5f6f7f8f9fafbfcfdff00"), 
+      {aes_256_ctr, hexstr2bin("603deb1015ca71be2b73aef0857d77811f352c073b6108d72d9810a30914dff4"),
+       hexstr2bin("f0f1f2f3f4f5f6f7f8f9fafbfcfdff00"),
        hexstr2bin("ae2d8a571e03ac9c9eb76fac45af8e51")},
-      {aes_256_ctr, hexstr2bin("603deb1015ca71be2b73aef0857d77811f352c073b6108d72d9810a30914dff4"), 
-       hexstr2bin("f0f1f2f3f4f5f6f7f8f9fafbfcfdff01"), 
+      {aes_256_ctr, hexstr2bin("603deb1015ca71be2b73aef0857d77811f352c073b6108d72d9810a30914dff4"),
+       hexstr2bin("f0f1f2f3f4f5f6f7f8f9fafbfcfdff01"),
        hexstr2bin("30c81c46a35ce411e5fbc1191a0a52ef")},
-      {aes_256_ctr, hexstr2bin("603deb1015ca71be2b73aef0857d77811f352c073b6108d72d9810a30914dff4"), 
-       hexstr2bin("f0f1f2f3f4f5f6f7f8f9fafbfcfdff02"), 
+      {aes_256_ctr, hexstr2bin("603deb1015ca71be2b73aef0857d77811f352c073b6108d72d9810a30914dff4"),
+       hexstr2bin("f0f1f2f3f4f5f6f7f8f9fafbfcfdff02"),
        hexstr2bin("f69f2445df4f9b17ad2b417be66c3710")},
 
       {aes_256_ctr,  hexstr2bin("603deb1015ca71be2b73aef0857d77811f352c073b6108d72d9810a30914dff4"),
@@ -3272,7 +3316,7 @@ dss_plain() ->
 dss_public() ->
     25854665488880835237281628794585130313500176551981812527054397586638455298000483144002221850980183404910190346416063318160497344811383498859129095184158800144312512447497510551471331451396405348497845813002058423110442376886564659959543650802132345311573634832461635601376738282831340827591903548964194832978.
 dss_private() ->
-    441502407453038284293378221372000880210588566361.  
+    441502407453038284293378221372000880210588566361.
 dss_params() ->
     [109799869232806890760655301608454668257695818999841877165019612946154359052535682480084145133201304812979481136659521529774182959764860329095546511521488413513097576425638476458000255392402120367876345280670101492199681798674053929238558140260669578407351853803102625390950534052428162468100618240968893110797,
      1349199015905534965792122312016505075413456283393,
@@ -3326,8 +3370,8 @@ srp3() ->
 			    "9176A9192615DC0277AE7C12F1F6A7F6563FCA11675D809AF578BDE5"
 			    "2B51E05D440B63099A017A0B45044801"),
     UserPassHash = crypto:hash(sha, [Salt, crypto:hash(sha, [Username, <<$:>>, Password])]),
-    Verifier = crypto:mod_pow(Generator, UserPassHash, Prime), 
-    ClientPublic = crypto:mod_pow(Generator, ClientPrivate, Prime), 
+    Verifier = crypto:mod_pow(Generator, UserPassHash, Prime),
+    ClientPublic = crypto:mod_pow(Generator, ClientPrivate, Prime),
     srp(ClientPrivate, Generator, Prime, Version, Verifier, ServerPublic, ServerPrivate, UserPassHash, Scrambler, SessionKey).
 
 srp6() ->
@@ -3368,7 +3412,7 @@ srp6() ->
 				 "72E992AAD89095A84B6A5FADA152369AB1E350A03693BEF044DF3EDF"
 				 "0C34741F4696C30E9F675D09F58ACBEB"),
     UserPassHash = crypto:hash(sha, [Salt, crypto:hash(sha, [Username, <<$:>>, Password])]),
-    Verifier = crypto:mod_pow(Generator, UserPassHash, Prime), 
+    Verifier = crypto:mod_pow(Generator, UserPassHash, Prime),
     ClientPublic = crypto:mod_pow(Generator, ClientPrivate, Prime),
     srp(ClientPrivate, Generator, Prime, Version, Verifier, ServerPublic, ServerPrivate, UserPassHash, Scrambler, SessionKey).
 
@@ -3394,7 +3438,7 @@ srp6a_smaller_prime() ->
 
     SessionKey = hexstr2bin("65581B2302580BD26F522A5A421CF969B9CCBCE4051196B034A2A9D22065D848"),
     UserPassHash = crypto:hash(sha, [Salt, crypto:hash(sha, [Username, <<$:>>, Password])]),
-    Verifier = crypto:mod_pow(Generator, UserPassHash, Prime), 
+    Verifier = crypto:mod_pow(Generator, UserPassHash, Prime),
     ClientPublic = crypto:mod_pow(Generator, ClientPrivate, Prime),
     srp(ClientPrivate, Generator, Prime, Version, Verifier, ServerPublic, ServerPrivate, UserPassHash, Scrambler, SessionKey).
 
@@ -3429,20 +3473,20 @@ srp6a() ->
 			      "6C6DA04453728610D0C6DDB58B318885D7D82C7F8DEB75CE7BD4FBAA"
 			      "37089E6F9C6059F388838E7A00030B331EB76840910440B1B27AAEAE"
 			      "EB4012B7D7665238A8E3FB004B117B58"),
-    
+
     SessionKey = hexstr2bin("B0DC82BABCF30674AE450C0287745E7990A3381F63B387AAF271A10D"
 			    "233861E359B48220F7C4693C9AE12B0A6F67809F0876E2D013800D6C"
 			    "41BB59B6D5979B5C00A172B4A2A5903A0BDCAF8A709585EB2AFAFA8F"
 			    "3499B200210DCC1F10EB33943CD67FC88A2F39A4BE5BEC4EC0A3212D"
 			    "C346D7E474B29EDE8A469FFECA686E5A"),
     UserPassHash = crypto:hash(sha, [Salt, crypto:hash(sha, [Username, <<$:>>, Password])]),
-    Verifier = crypto:mod_pow(Generator, UserPassHash, Prime), 
-    ClientPublic = crypto:mod_pow(Generator, ClientPrivate, Prime), 
+    Verifier = crypto:mod_pow(Generator, UserPassHash, Prime),
+    ClientPublic = crypto:mod_pow(Generator, ClientPrivate, Prime),
     srp(ClientPrivate, Generator, Prime, Version, Verifier, ServerPublic, ServerPrivate, UserPassHash, Scrambler, SessionKey).
 
 srp(ClientPrivate, Generator, Prime, Version, Verifier, ServerPublic, ServerPrivate, UserPassHash, Scrambler, SessionKey)->
-    {srp, ClientPrivate, 
-     {user, [Generator, Prime, Version]}, {user, [UserPassHash, Prime, Generator, Version, Scrambler]}, 
+    {srp, ClientPrivate,
+     {user, [Generator, Prime, Version]}, {user, [UserPassHash, Prime, Generator, Version, Scrambler]},
      ServerPublic, ServerPrivate, {host, [Verifier, Generator, Prime, Version]},
      {host, [Verifier, Prime, Version, Scrambler]},
      SessionKey}.
@@ -4096,7 +4140,7 @@ parse_rsp(Type, [<<"COUNT = ", _/binary>>,
                  <<"PLAINTEXT = ", PlainText/binary>>,
                  <<"CIPHERTEXT = ", CipherText/binary>>|Next], State, Acc) ->
     parse_rsp(Type, Next, State,
-              [{Type, hexstr2bin(Key), 
+              [{Type, hexstr2bin(Key),
                 hexstr2bin(PlainText), hexstr2bin(CipherText)}|Acc]);
 parse_rsp(Type, [<<"COUNT = ", _/binary>>,
                  <<"KEY = ", Key/binary>>,
@@ -4268,7 +4312,7 @@ api_errors_ecdh(Config) when is_list(Config) ->
         (fun() -> % avoid binding vars
                  try
                      Call
-                 catch 
+                 catch
                      Expect -> ok;
 
                      Class:Reason:Stack ->
@@ -4307,7 +4351,7 @@ bad_sign_name(_Config) ->
                   error:badarg),
     ?chk_api_name(crypto:sign(foobar, sha, "nothing", <<1:1024>>),
                   error:badarg).
-    
+
 bad_verify_name(_Config) ->
     ?chk_api_name(crypto:verify(rsa, foobar, "nothing","nothing",  <<1:1024>>),
                   error:badarg),

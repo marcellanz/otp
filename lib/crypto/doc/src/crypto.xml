@@ -1080,6 +1080,17 @@
     </func>
 
     <func>
+      <name name="hash_xof" arity="2" since="OTP 26.0"/>
+      <fsummary></fsummary>
+      <desc>
+          <p>Computes a message digest of type <c>Type</c> from <c>Data</c> of <c>Length</c>
+              for the chosen <c>xof_algorithm</c>.</p>
+          <p>May raise exception <c>error:notsup</c> in case the chosen <c>Type</c>
+              is not supported by the underlying libcrypto implementation.</p>
+      </desc>
+    </func>
+
+    <func>
       <name name="hash_init" arity="1" since="OTP R15B02"/>
       <fsummary></fsummary>
       <desc>
@@ -1111,6 +1122,17 @@
 	from a previous call to <seemfa marker="#hash_update/2">hash_update</seemfa>.
 	The size of <c>Digest</c> is determined by the type of hash
 	function used to generate it.</p>
+      </desc>
+    </func>
+
+    <func>
+      <name name="hash_final_xof" arity="2" since="OTP 25.0"/>
+      <fsummary></fsummary>
+      <desc>
+        <p>Finalizes the hash operation referenced by <c>Context</c> returned
+	from a previous call to <seemfa marker="#hash_update/2">hash_update</seemfa>.
+	The size of <c>Digest</c> is determined by the length chosen for the
+    extendable-output function to be produced.</p>
       </desc>
     </func>
 

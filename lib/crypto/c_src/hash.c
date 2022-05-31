@@ -247,6 +247,45 @@ ERL_NIF_TERM hash_final_nif(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
     return ret;
 }
 
+ERL_NIF_TERM hash_final_xof_nif(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+{/* (Context) */
+    struct evp_md_ctx   *ctx;
+    EVP_MD_CTX          *new_ctx;
+    ERL_NIF_TERM        ret;
+    unsigned char       *outp;
+    size_t              len;
+
+    ASSERT(argc == 2);
+    if (!enif_get_resource(env, argv[0], evp_md_ctx_rtype, (void**)&ctx))
+        goto bad_arg;
+    if (!enif_get_ulong(env, argv[1], &len))
+        goto bad_arg;
+    ASSERT(0 < len);
+
+    if ((new_ctx = EVP_MD_CTX_new()) == NULL)
+        goto err;
+    if (EVP_MD_CTX_copy(new_ctx, ctx->ctx) != 1)
+        goto err;
+    if ((outp = enif_make_new_binary(env, len>>3, &ret)) == NULL)
+        goto err;
+    if (EVP_DigestFinalXOF(new_ctx, outp, len>>3) != 1)
+        goto err;
+
+    ASSERT(len == (unsigned)EVP_MD_CTX_size(ctx->ctx));
+    goto done;
+
+ bad_arg:
+    return enif_make_badarg(env);
+
+ err:
+    ret = atom_notsup;
+
+ done:
+    if (new_ctx)
+        EVP_MD_CTX_free(new_ctx);
+    return ret;
+}
+
 #else /* if OPENSSL_VERSION_NUMBER < 1.0 */
 
 ERL_NIF_TERM hash_init_nif(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
