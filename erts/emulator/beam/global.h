@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 1996-2020. All Rights Reserved.
+ * Copyright Ericsson AB 1996-2022. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -443,28 +443,29 @@ do {						\
 
 #define ESTACK_IS_STATIC(s) ((s).start == ESTK_DEF_STACK(s))
 
+#define ESTACK_RESERVE(s, push_cnt)             \
+do {					        \
+    if ((s).end - (s).sp < (Sint)(push_cnt)) {	\
+	erl_grow_estack(&(s), (push_cnt));	\
+    }					        \
+} while(0)
+
 #define ESTACK_PUSH(s, x)			\
 do {						\
-    if ((s).sp == (s).end) {			\
-	erl_grow_estack(&(s), 1); 		\
-    }						\
+    ESTACK_RESERVE(s, 1);                       \
     *(s).sp++ = (x);				\
 } while(0)
 
 #define ESTACK_PUSH2(s, x, y)			\
 do {						\
-    if ((s).sp > (s).end - 2) {			\
-	erl_grow_estack(&(s), 2);		\
-    }						\
+    ESTACK_RESERVE(s, 2);                       \
     *(s).sp++ = (x);				\
     *(s).sp++ = (y);				\
 } while(0)
 
 #define ESTACK_PUSH3(s, x, y, z)		\
 do {						\
-    if ((s).sp > (s).end - 3) {			\
-	erl_grow_estack(&s, 3); 		\
-    }						\
+    ESTACK_RESERVE(s, 3);                       \
     *(s).sp++ = (x);				\
     *(s).sp++ = (y);				\
     *(s).sp++ = (z);				\
@@ -472,20 +473,11 @@ do {						\
 
 #define ESTACK_PUSH4(s, E1, E2, E3, E4)		\
 do {						\
-    if ((s).sp > (s).end - 4) {			\
-	erl_grow_estack(&s, 4);                 \
-    }						\
+    ESTACK_RESERVE(s, 4);                       \
     *(s).sp++ = (E1);				\
     *(s).sp++ = (E2);				\
     *(s).sp++ = (E3);				\
     *(s).sp++ = (E4);				\
-} while(0)
-
-#define ESTACK_RESERVE(s, push_cnt)             \
-do {					        \
-    if ((s).sp > (s).end - (push_cnt)) {	\
-	erl_grow_estack(&(s), (push_cnt));	\
-    }					        \
 } while(0)
 
 /* Must be preceded by ESTACK_RESERVE */
@@ -642,28 +634,29 @@ do {						\
 
 #define WSTACK_IS_STATIC(s) (s.wstart == WSTK_DEF_STACK(s))
 
-#define WSTACK_PUSH(s, x)				\
-do {							\
-    if (s.wsp == s.wend) {				\
-	erl_grow_wstack(&s, 1); 	                \
-    }							\
-    *s.wsp++ = (x);					\
+#define WSTACK_RESERVE(s, push_cnt)             \
+do {						\
+    if (s.wend - s.wsp < (Sint)(push_cnt)) {    \
+	erl_grow_wstack(&s, (push_cnt));        \
+    }                                           \
+} while(0)
+
+#define WSTACK_PUSH(s, x)                       \
+do {                                            \
+    WSTACK_RESERVE(s, 1);                       \
+    *s.wsp++ = (x);				\
 } while(0)
 
 #define WSTACK_PUSH2(s, x, y)			\
 do {						\
-    if (s.wsp > s.wend - 2) {			\
-	erl_grow_wstack(&s, 2);                 \
-    }						\
+    WSTACK_RESERVE(s, 2);                       \
     *s.wsp++ = (x);				\
     *s.wsp++ = (y);				\
 } while(0)
 
 #define WSTACK_PUSH3(s, x, y, z)		\
 do {						\
-    if (s.wsp > s.wend - 3) {	                \
-	erl_grow_wstack(&s, 3);                 \
-    }						\
+    WSTACK_RESERVE(s, 3);                       \
     *s.wsp++ = (x);				\
     *s.wsp++ = (y);				\
     *s.wsp++ = (z);				\
@@ -671,9 +664,7 @@ do {						\
 
 #define WSTACK_PUSH4(s, A1, A2, A3, A4)		\
 do {						\
-    if (s.wsp > s.wend - 4) {	                \
-	erl_grow_wstack(&s, 4);                 \
-    }						\
+    WSTACK_RESERVE(s, 4);                       \
     *s.wsp++ = (A1);				\
     *s.wsp++ = (A2);				\
     *s.wsp++ = (A3);				\
@@ -682,9 +673,7 @@ do {						\
 
 #define WSTACK_PUSH5(s, A1, A2, A3, A4, A5)     \
 do {						\
-    if (s.wsp > s.wend - 5) {	                \
-	erl_grow_wstack(&s, 5);                 \
-    }						\
+    WSTACK_RESERVE(s, 5);                       \
     *s.wsp++ = (A1);				\
     *s.wsp++ = (A2);				\
     *s.wsp++ = (A3);				\
@@ -694,22 +683,13 @@ do {						\
 
 #define WSTACK_PUSH6(s, A1, A2, A3, A4, A5, A6) \
 do {						\
-    if (s.wsp > s.wend - 6) {	                \
-	erl_grow_wstack(&s, 6);                 \
-    }						\
+    WSTACK_RESERVE(s, 6);                       \
     *s.wsp++ = (A1);				\
     *s.wsp++ = (A2);				\
     *s.wsp++ = (A3);				\
     *s.wsp++ = (A4);				\
     *s.wsp++ = (A5);				\
     *s.wsp++ = (A6);				\
-} while(0)
-
-#define WSTACK_RESERVE(s, push_cnt)             \
-do {						\
-    if (s.wsp > s.wend - (push_cnt)) { 	        \
-	erl_grow_wstack(&s, (push_cnt));        \
-    }                                           \
 } while(0)
 
 /* Must be preceded by WSTACK_RESERVE */
@@ -996,7 +976,7 @@ typedef struct ErtsLiteralArea_ {
 void erts_queue_release_literals(Process *c_p, ErtsLiteralArea* literals);
 
 #define ERTS_LITERAL_AREA_ALLOC_SIZE(N) \
-    (sizeof(ErtsLiteralArea) + sizeof(Eterm)*((N) - 1))
+    (sizeof(ErtsLiteralArea) + sizeof(Eterm)*(N - 1))
 #define ERTS_LITERAL_AREA_SIZE(AP) \
     (ERTS_LITERAL_AREA_ALLOC_SIZE((AP)->end - (AP)->start))
 
@@ -1236,6 +1216,7 @@ void print_pass_through(int, byte*, int);
 int catchlevel(Process*);
 void init_emulator(void);
 void process_main(ErtsSchedulerData *);
+void erts_prepare_bs_construct_fail_info(Process* c_p, const BeamInstr* p, Eterm reason, Eterm Info, Eterm value);
 void erts_dirty_process_main(ErtsSchedulerData *);
 Eterm build_stacktrace(Process* c_p, Eterm exc);
 Eterm expand_error_value(Process* c_p, Uint freason, Eterm Value);
@@ -1327,14 +1308,15 @@ typedef struct {
     ErlDrvEntry* de;
     int taint;
 } ErtsStaticDriver;
-typedef void *(*ErtsStaticNifInitFPtr)(void);
-typedef struct ErtsStaticNifEntry_ {
-    const char *nif_name;
-    ErtsStaticNifInitFPtr nif_init;
-    int taint;
-} ErtsStaticNifEntry;
-ErtsStaticNifEntry* erts_static_nif_get_nif_init(const char *name, int len);
-int erts_is_static_nif(void *handle);
+typedef void* ErtsStaticNifInitF(void);
+typedef struct {
+    ErtsStaticNifInitF* const nif_init;
+    const int taint;
+
+    Eterm mod_atom;
+    ErlNifEntry* entry;
+} ErtsStaticNif;
+extern ErtsStaticNif erts_static_nif_tab[];
 void erts_init_static_drivers(void);
 
 /* erl_drv_thread.c */
@@ -1491,10 +1473,10 @@ Sint erts_unicode_set_loop_limit(Sint limit);
 void erts_native_filename_put(Eterm ioterm, int encoding, byte *p) ;
 Sint erts_native_filename_need(Eterm ioterm, int encoding);
 void erts_copy_utf8_to_utf16_little(byte *target, byte *bytes, int num_chars);
-int erts_analyze_utf8(byte *source, Uint size, 
-			byte **err_pos, Uint *num_chars, int *left);
-int erts_analyze_utf8_x(byte *source, Uint size, 
-			byte **err_pos, Uint *num_chars, int *left,
+int erts_analyze_utf8(const byte *source, Uint size, 
+			const byte **err_pos, Uint *num_chars, int *left);
+int erts_analyze_utf8_x(const byte *source, Uint size, 
+			const byte **err_pos, Uint *num_chars, int *left,
 			Sint *num_latin1_chars, Uint max_chars);
 char *erts_convert_filename_to_native(Eterm name, char *statbuf, 
 				      size_t statbuf_size, 
@@ -1515,6 +1497,11 @@ char* erts_convert_filename_to_wchar(byte* bytes, Uint size,
 Eterm erts_convert_native_to_filename(Process *p, size_t size, byte *bytes);
 Eterm erts_utf8_to_list(Process *p, Uint num, byte *bytes, Uint sz, Uint left,
 			Uint *num_built, Uint *num_eaten, Eterm tail);
+Eterm
+erts_make_list_from_utf8_buf(Eterm **hpp, Uint num,
+                             const byte *bytes, Uint sz,
+                             Uint *num_built, Uint *num_eaten,
+                             Eterm tail);
 int erts_utf8_to_latin1(byte* dest, const byte* source, int slen);
 #define ERTS_UTF8_OK 0
 #define ERTS_UTF8_INCOMPLETE 1
@@ -1732,8 +1719,10 @@ int erts_beam_jump_table(void);
 ERTS_GLB_INLINE void dtrace_pid_str(Eterm pid, char *process_buf);
 ERTS_GLB_INLINE void dtrace_proc_str(Process *process, char *process_buf);
 ERTS_GLB_INLINE void dtrace_port_str(Port *port, char *port_buf);
-ERTS_GLB_INLINE void dtrace_fun_decode(Process *process, ErtsCodeMFA *mfa,
-				       char *process_buf, char *mfa_buf);
+ERTS_GLB_INLINE void dtrace_fun_decode(Process *process,
+                                       const ErtsCodeMFA *mfa,
+                                       char *process_buf,
+                                       char *mfa_buf);
 
 #if ERTS_GLB_INLINE_INCL_FUNC_DEF
 
@@ -1766,7 +1755,7 @@ dtrace_port_str(Port *port, char *port_buf)
 }
 
 ERTS_GLB_INLINE void
-dtrace_fun_decode(Process *process, ErtsCodeMFA *mfa,
+dtrace_fun_decode(Process *process, const ErtsCodeMFA *mfa,
                   char *process_buf, char *mfa_buf)
 {
     if (process_buf) {

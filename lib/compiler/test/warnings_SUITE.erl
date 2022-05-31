@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2003-2020. All Rights Reserved.
+%% Copyright Ericsson AB 2003-2022. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -43,7 +43,8 @@
          redundant_boolean_clauses/1,
 	 underscore/1,no_warnings/1,
 	 bit_syntax/1,inlining/1,tuple_calls/1,
-         recv_opt_info/1,opportunistic_warnings/1]).
+         recv_opt_info/1,opportunistic_warnings/1,
+         eep49/1]).
 
 init_per_testcase(_Case, Config) ->
     Config.
@@ -66,7 +67,8 @@ groups() ->
        maps_bin_opt_info,
        redundant_boolean_clauses,
        underscore,no_warnings,bit_syntax,inlining,
-       tuple_calls,recv_opt_info,opportunistic_warnings]}].
+       tuple_calls,recv_opt_info,opportunistic_warnings,
+       eep49]}].
 
 init_per_suite(Config) ->
     test_lib:recompile(?MODULE),
@@ -244,16 +246,12 @@ guard(Config) when is_list(Config) ->
            ">>,
 	   [nowarn_unused_vars],
 	   {warnings,
-            [{{2,15},sys_core_fold,{nomatch,guard}},
-             {{2,15},sys_core_fold,{nomatch,no_clause}},
-             {{2,28},sys_core_fold,
+            [{{2,28},sys_core_fold,
               {failed,{eval_failure,
                        {erlang,element,2},
                        badarg}}},
              {{4,15},sys_core_fold,{nomatch,guard}},
              {{4,15},sys_core_fold,{nomatch,no_clause}},
-             {{6,15},sys_core_fold,{nomatch,guard}},
-             {{6,15},sys_core_fold,{nomatch,no_clause}},
              {{6,26},sys_core_fold,
               {failed,
                {eval_failure,
@@ -284,19 +282,14 @@ bad_arith(Config) when is_list(Config) ->
            ">>,
 	   [],
 	   {warnings,
-            [{{3,19},sys_core_fold,{nomatch,guard}},
-             {{3,21},sys_core_fold,
+            [{{3,21},sys_core_fold,
               {failed,{eval_failure,
                        {erlang,'+',2},
                        badarith}}},
-             {{9,19},sys_core_fold,
-              {ignored,{no_effect,{erlang,is_integer,1}}}},
-             {{9,19},sys_core_fold,{nomatch,guard}},
              {{9,36},sys_core_fold,
               {failed,{eval_failure,
                        {erlang,'+',2},
                        badarith}}},
-             {{10,19},sys_core_fold,{nomatch,guard}},
              {{10,21},sys_core_fold,
               {failed,{eval_failure,
                        {erlang,'+',2},
@@ -1173,6 +1166,28 @@ opportunistic_warnings(Config) ->
 
 
     ok.
+
+%% Test value-based error handling (EEP 49).
+eep49(Config) ->
+    Ts = [{basic,
+           <<"foo(X) ->
+                  maybe
+                      %% There should be no warning.
+                      Always ?= X,
+                      Always
+                  end.
+           ">>,
+           [{feature,maybe_expr,enable}],
+           []},
+          {disabled,
+           <<"foo() -> maybe.                        %Atom maybe.
+           ">>,
+           [{feature,maybe_expr,disable}],
+           []}
+	 ],
+    run(Config, Ts),
+    ok.
+
 
 %%%
 %%% End of test cases.

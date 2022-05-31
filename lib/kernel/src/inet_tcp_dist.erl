@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 1997-2018. All Rights Reserved.
+%% Copyright Ericsson AB 1997-2022. All Rights Reserved.
 %% 
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -39,9 +39,6 @@
 
 -include("net_address.hrl").
 
-
-
-
 -include("dist.hrl").
 -include("dist_util.hrl").
 
@@ -54,10 +51,13 @@ select(Node) ->
     gen_select(inet_tcp, Node).
 
 gen_select(Driver, Node) ->
-    case split_node(atom_to_list(Node), $@, []) of
-	[_, Host] ->
-	    case inet:getaddr(Host, Driver:family()) of
-                {ok,_} -> true;
+    case dist_util:split_node(Node) of
+	{node, Name, Host} ->
+            case call_epmd_function(
+                   net_kernel:epmd_module(), address_please,
+                   [Name, Host, Driver:family()]) of
+                {ok, _Addr} -> true;
+                {ok, _Addr, _Port, _Creation} -> true;
                 _ -> false
             end;
 	_ -> false
@@ -208,7 +208,7 @@ accept_connection(AcceptPid, Socket, MyNode, Allowed, SetupTime) ->
 gen_accept_connection(Driver, AcceptPid, Socket, MyNode, Allowed, SetupTime) ->
     spawn_opt(?MODULE, do_accept,
 	      [Driver, self(), AcceptPid, Socket, MyNode, Allowed, SetupTime],
-	      [link, {priority, max}]).
+	      dist_util:net_ticker_spawn_options()).
 
 do_accept(Driver, Kernel, AcceptPid, Socket, MyNode, Allowed, SetupTime) ->
     receive
@@ -274,7 +274,6 @@ nodelay() ->
 	    {nodelay, true}
     end.
 
-
 %% ------------------------------------------------------------
 %% Get remote information about a Socket.
 %% ------------------------------------------------------------
@@ -304,7 +303,7 @@ setup(Node, Type, MyNode, LongOrShortNames,SetupTime) ->
 gen_setup(Driver, Node, Type, MyNode, LongOrShortNames, SetupTime) ->
     spawn_opt(?MODULE, do_setup, 
 	      [Driver, self(), Node, Type, MyNode, LongOrShortNames, SetupTime],
-	      [link, {priority, max}]).
+	      dist_util:net_ticker_spawn_options()).
 
 do_setup(Driver, Kernel, Node, Type, MyNode, LongOrShortNames, SetupTime) ->
     ?trace("~p~n",[{inet_tcp_dist,self(),setup,Node}]),

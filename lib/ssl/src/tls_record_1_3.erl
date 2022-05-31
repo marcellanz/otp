@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2007-2020. All Rights Reserved.
+%% Copyright Ericsson AB 2007-2022. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -111,7 +111,7 @@ encode_iolist(Type, Data, ConnectionStates0) ->
                                  ssl_record:connection_states()}| #alert{}.
 %%
 %% Description: Decode cipher text, use legacy type ssl_tls instead of tls_cipher_text
-%% in decoding context so that we can reuse the code from erlier versions. 
+%% in decoding context so that we can reuse the code from earlier versions. 
 %%--------------------------------------------------------------------
 decode_cipher_text(#ssl_tls{type = ?OPAQUE_TYPE,
                             version = ?LEGACY_VERSION,
@@ -291,10 +291,7 @@ encode_plain_text(#inner_plaintext{
     %% structures are written directly onto the wire.
     #tls_cipher_text{opaque_type = Type,
                       legacy_version = {3,3},
-                      encoded_record = Data};
-
-encode_plain_text(_, CS) ->
-    exit({cs, CS}).
+                      encoded_record = Data}.
 
 additional_data(Length) ->
     <<?BYTE(?OPAQUE_TYPE), ?BYTE(3), ?BYTE(3),?UINT16(Length)>>.

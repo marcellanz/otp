@@ -2,7 +2,7 @@
 #
 # %CopyrightBegin%
 #
-# Copyright Ericsson AB 2003-2020. All Rights Reserved.
+# Copyright Ericsson AB 2003-2022. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -81,9 +81,28 @@ run_asan=no
 run_rr=no
 skip_erlexec=no
 
+prog="$0"
+progdir="`dirname ${prog}`"
+dyn_erl_path="${progdir}/%DYN_ERL_PATH%"
+if [ -f "$dyn_erl_path" ]
+then
+    dyn_rootdir=`${dyn_erl_path} --realpath`
+    dyn_rootdir=`dirname ${dyn_rootdir}`
+    dyn_rootdir=`dirname ${dyn_rootdir}`
+else
+    dyn_rootdir=""
+fi
+
 # Default rootdir
 ROOTDIR=%SRC_ROOTDIR%
-BINDIR="$ROOTDIR/bin/`$ROOTDIR/erts/autoconf/config.guess`"
+
+if [ "$dyn_rootdir" != "$ROOTDIR" ] && [ "$dyn_rootdir" != "" ]
+then
+    # It is likely that the files have been copied or moved
+    ROOTDIR="$dyn_rootdir"
+fi
+
+BINDIR="$ROOTDIR/bin/`$ROOTDIR/make/autoconf/config.guess`"
 TARGET=%TARGET%
 #BINDIR="$ROOTDIR/bin/%TARGET%"
 PROGNAME=$ROOTDIR/bin/cerl
@@ -136,27 +155,27 @@ while [ $# -gt 0 ]; do
 	"-lcnt")
 	    shift
 	    cargs="$cargs -lcnt"
-	    TYPE=.lcnt
+	    TYPE=lcnt
 	    ;;
 	"-gprof")
 	    shift
 	    cargs="$cargs -gprof"
-	    TYPE=.gprof
+	    TYPE=gprof
 	    ;;
 	"-debug")
 	    shift
 	    cargs="$cargs -debug"
-	    TYPE=.debug
+	    TYPE=debug
 	    ;;
 	"-frmptr")
 	    shift
 	    cargs="$cargs -frmptr"
-	    TYPE=.frmptr
+	    TYPE=frmptr
 	    ;;
 	"-icount")
 	    shift
 	    cargs="$cargs -icount"
-	    TYPE=.icount
+	    TYPE=icount
 	    ;;
 	"-dump")
 	    shift
@@ -201,12 +220,12 @@ while [ $# -gt 0 ]; do
 	"-gcov")
 	    shift
 	    cargs="$cargs -gcov"
-	    TYPE=.gcov
+	    TYPE=gcov
 	    ;;
 	"-valgrind")
 	    shift
 	    cargs="$cargs -valgrind"
-	    TYPE=.valgrind
+	    TYPE=valgrind
 	    run_valgrind=yes
 	    skip_erlexec=yes
 	    ;;
@@ -214,12 +233,12 @@ while [ $# -gt 0 ]; do
 	    shift
 	    cargs="$cargs -asan"
 	    run_asan=yes
-	    TYPE=.asan
+	    TYPE=asan
 	    ;;
         "-emu_type")
             shift
             cargs="$cargs -emu_type $1"
-            TYPE=.$1
+            TYPE=$1
             shift
             ;;
         "-emu_flavor")
@@ -257,13 +276,17 @@ PATH=$BINDIR:$ROOTDIR/bin:$PATH
 EXEC=$BINDIR/erlexec
 
 PROGNAME="$PROGNAME$cargs"
-EMU="$EMU$TYPE"
-if [ "x$FLAVOR" = "x" ]; then
-   EMU_NAME=`$EXEC -emu_name_exit`
-else
-    EMU_NAME=`$EXEC -emu_name_exit -emu_flavor $FLAVOR`
-    xargs="$xargs -emu_flavor $FLAVOR"
+EMU_NAME_ARGS=""
+if [ "x$TYPE" != "x" ]; then
+    EMU_NAME_ARGS="${EMU_NAME_ARGS} -emu_type ${TYPE}"
+    set -- -emu_type ${TYPE} ${1+"$@"}
 fi
+if [ "x$FLAVOR" != "x" ]; then
+    EMU_NAME_ARGS="${EMU_NAME_ARGS} -emu_flavor ${FLAVOR}"
+    set -- -emu_flavor ${FLAVOR} ${1+"$@"}
+fi
+EMU_NAME=`$EXEC -emu_name_exit ${EMU_NAME_ARGS}`
+
 
 if [ $skip_erlexec = yes ]; then
     emu_xargs=`echo $xargs | sed "s|+|-|g"`
@@ -359,7 +382,7 @@ if [ "x$GDB" = "x" ]; then
 	    taskset1=
 	    sched_arg=
 	fi
-        if [ $EMU_NAME = "beam.valgrind.asm" ]; then
+        if [ $EMU_NAME = "beam.valgrind.smp" ] && [ "x${VALGRIND_LOG_DIR}" != "x" ]; then
             # Always enable `perf` support as we use the same symbol map
             emu_xargs="$emu_xargs -JPperf true "
             set -m
@@ -410,7 +433,7 @@ elif [ "x$GDB" = "xgdb" ]; then
     case "x$core" in
 	x)
 	    # Get emu args to use from erlexec...
-	    beam_args=`$EXEC -emu_args_exit ${1+"$@"}`
+	    beam_args=`$EXEC -emu_args_exit $xargs ${1+"$@"}`
 	    gdbcmd="--args $EMU_NAME $beam_args"
 	    ;;
 	x/*)
@@ -430,7 +453,7 @@ elif [ "x$GDB" = "xgdb" ]; then
 elif [ "x$GDB" = "xlldb" ]; then
     case "x$core" in
         x)
-            beam_args=`$EXEC -emu_args_exit ${1+"$@"}`
+            beam_args=`$EXEC -emu_args_exit $xargs ${1+"$@"}`
             lldbcmd="-- $beam_args"
             ;;
         *)
@@ -449,7 +472,7 @@ elif [ "x$GDB" = "xegdb" ]; then
     case "x$core" in
 	x)
 	    # Get emu args to use from erlexec...
-	    beam_args=`$EXEC -emu_args_exit ${1+"$@"} | tr '\n' ' '`
+	    beam_args=`$EXEC -emu_args_exit $xargs ${1+"$@"} | tr '\n' ' '`
 	    gdbcmd="(insert-string \"set args $beam_args\") \
                     (comint-send-input)"
 	    ;;
@@ -486,6 +509,12 @@ elif [ "x$GDB" = "xegdb" ]; then
     exec $EMACS --eval "(progn (gdb \"gdb $GDBARGS$EMU_NAME\") $gdbcmd)"
 elif [ "x$GDB" = "xdump" ]; then
     cmdfile="/tmp/.cerlgdb.$$"
+    ## Examine the result of "file $core" in case it is not the emulator
+    ## that created the dump
+    fileCore=$(file "$core" | sed "s@.*execfn:\\s*'\([^']*\).*@\\1@g")
+    if [ -f "${fileCore}" ] && [ "$(basename ${fileCore})" != "${EMU_NAME}" ]; then
+        EMU_NAME="${fileCore}"
+    fi
     case "x$core" in
 	x/*)
 	    ;;
@@ -505,11 +534,11 @@ quit
         *)
 	    echo "set width 0
 set height 0
-set verbose off
-
-source $ROOTDIR/erts/etc/unix/etp-commands
-thread apply all bt
-" > $cmdfile
+set verbose off" > $cmdfile
+            if echo "${EMU_NAME}" | grep "beam."; then
+                echo "source $ROOTDIR/erts/etc/unix/etp-commands" >> $cmdfile
+            fi
+            echo "thread apply all bt" >> $cmdfile
 	    exec gdb --batch --command=$cmdfile $EMU_NAME $core
 	    ;;
     esac

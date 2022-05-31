@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2009-2018. All Rights Reserved.
+%% Copyright Ericsson AB 2009-2021. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -2722,7 +2722,7 @@ os_cmd(Cmd) when is_list(Cmd) ->
         []->
             {99, []};
         Return->
-            %% Find the position of the status code wich is last in the string
+            %% Find the position of the status code which is last in the string
             %% prepended with #
             case string:split(Return, "$#", trailing) of
                 [_] -> %% This happens only if the sh command pipe is somehow interrupted

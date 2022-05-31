@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2008-2018. All Rights Reserved.
+%% Copyright Ericsson AB 2008-2022. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -467,7 +467,7 @@ parse_member(Data,MType,Virtual,Opts = #hs{fopt=Fopts}) ->
 	     end, PS2),
     Alias = find_erl_alias_name(MName,PS,Fopts),
     FOpts = find_func_options(MName, PS2, Fopts),
-    %% ?DBGCF("wxTopLevelWindow", "ShowFullScreen", "~p~n", [Method#method.doc]),
+    %% ?DBGCF("wxImage", "SetAlpha", "~p~n", [PS]),
     Method#method{params=PS, alias=Alias, opts=FOpts}.
 
 
@@ -614,6 +614,7 @@ handle_param_opt({skip_member, Type}, P) ->
 handle_param_opt({erl_func,_Name}, P) -> P;  %% Handled elsewhere
 handle_param_opt(in, P) -> P#param{in=true};
 handle_param_opt(out, P) -> P#param{in=false};
+handle_param_opt(copy, P=#param{type=T}) ->  P#param{type=T#type{by_val=copy}};
 handle_param_opt(both, P) -> P#param{in=both};
 handle_param_opt({def,Def},P) -> P#param{def=Def};
 handle_param_opt({type,Type}, P=#param{type=T})  ->  P#param{type=T#type{name=Type}};
@@ -648,7 +649,7 @@ parse_param(#xmlElement{name=declname,content=[C]},_Opts,T) ->
 parse_param(#xmlElement{name=defval,content=[#xmlText{value=Def}]},_Opts,T) -> 
     T#param{def=string:strip(Def)};
 parse_param(#xmlElement{name=defval,content=Other},_Opts,T) -> 
-    %% For defaults = (modifer wxType *) NULL 
+    %% For defaults = (modifier wxType *) NULL 
     Def0 = foldr(fun(#xmlText{value=V}, Acc) -> V ++ Acc;
 		    (#xmlElement{content=[#xmlText{value=V}]},Acc) -> 
 			 V ++ Acc
@@ -1522,7 +1523,7 @@ enum_file(File) ->
 parse_enums(Files) ->
     DontSearch = ["wxchar","filefn", "platform", "strconv", "filename", 
 		  "buffer", "string", "debug", "platinfo"],
-    %% Arg need to patch some specials, atleast for wx-2.6
+    %% Arg need to patch some specials, at least for wx-2.6
     ExtraSearch = ["layout", "utils", "added__func"],
     io:format("~nParse Enums~n~n", []),
     parse_enums(Files ++ ExtraSearch,gb_sets:from_list(DontSearch)).

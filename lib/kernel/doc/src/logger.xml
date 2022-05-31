@@ -4,7 +4,7 @@
 <erlref>
   <header>
     <copyright>
-      <year>2017</year><year>2020</year>
+      <year>2017</year><year>2021</year>
       <holder>Ericsson AB. All Rights Reserved.</holder>
     </copyright>
     <legalnotice>
@@ -480,7 +480,7 @@ logger:log(warning, #{ what => roof, cause => Cause }).
         <p>The message and metadata can either be given directly in the arguments,
           or returned from a fun. Passing a fun instead of the message/metadata directly is
           useful in scenarios when the message/metadata is very expensive to compute.
-          This is because the fun is only evaluted when the message/metadata is
+          This is because the fun is only evaluated when the message/metadata is
           actually needed, which may be not at all if the log event is not
           to be logged. Examples:</p>
         <code>
@@ -1190,7 +1190,7 @@ logger:set_proxy_config(maps:merge(Old, Config)).
     </func>
 
     <func>
-      <name name="reconfigure" arity="0" since="OTP @OTP-17375@"/>
+      <name name="reconfigure" arity="0" since="OTP 24.2"/>
       <fsummary>Reconfigure Logger.</fsummary>
       <desc>
         <p>Reconfigure Logger using updated <c>kernel</c> configuration

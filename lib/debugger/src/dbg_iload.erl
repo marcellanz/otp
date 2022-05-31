@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1998-2017. All Rights Reserved.
+%% Copyright Ericsson AB 1998-2022. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -241,8 +241,9 @@ pattern({cons,Anno,H0,T0}, St) ->
 pattern({tuple,Anno,Ps0}, St) ->
     Ps1 = pattern_list(Ps0, St),
     {tuple,ln(Anno),Ps1};
-pattern({record_index,Anno,Name,Field}, St) ->
-    index_expr(Anno, Field, Name, record_fields(Name, Anno, St));
+pattern({record_index,Anno,Name,Field} = _DBG, St) ->
+    Expr = index_expr(Anno, Field, Name, record_fields(Name, Anno, St)),
+    pattern(Expr, St);
 pattern({record,Anno,Name,Pfs}, St0) ->
     Fs = record_fields(Name, Anno, St0),
     TMs = pattern_list(pattern_fields(Fs, Pfs), St0),
@@ -900,7 +901,7 @@ record_pattern(_, _, _, _, _, Acc) -> lists:reverse(Acc).
 
 %% The debugger converts both strings "abc" and lists [67, 68, 69]
 %% into {value, Line, [67, 68, 69]}, making it impossible to later
-%% distingish one or the other inside binaries when evaluating. To
+%% distinguish one or the other inside binaries when evaluating. To
 %% avoid <<[67, 68, 69]>> from evaluating, we convert strings into
 %% chars to avoid the ambiguity.
 bin_expand_strings(Es) ->

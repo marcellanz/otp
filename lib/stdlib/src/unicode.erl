@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2008-2017. All Rights Reserved.
+%% Copyright Ericsson AB 2008-2021. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -389,6 +389,8 @@ characters_to_binary_int(ML, InEncoding) ->
 	error:Reason ->
             fake_stacktrace(Reason, characters_to_binary, [ML, InEncoding])
     end.
+
+-spec fake_stacktrace(term(), atom(), [term()]) -> no_return().
 
 fake_stacktrace(Reason, Name, Args) ->
     try

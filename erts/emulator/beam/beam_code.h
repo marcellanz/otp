@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 2020-2020. All Rights Reserved.
+ * Copyright Ericsson AB 2020-2021. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -91,6 +91,13 @@ typedef struct beam_code_header {
      * Pointer to the module MD5 sum (16 bytes)
      */
     const byte *md5_ptr;
+
+    /*
+     * Boolean array with functions declared as -nifs().
+     * Indexed same as functions[].
+     * NULL if no -nifs().
+     */
+    byte* are_nifs;
 
     /*
      * Start of function pointer table.  This table contains pointers to

@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 2007-2017. All Rights Reserved.
+%% Copyright Ericsson AB 2007-2022. All Rights Reserved.
 %% 
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -85,7 +85,7 @@ DUMMY
     DummyFile = filename:join([PrivDir,"dummy.html"]),
     CgiDir =  filename:join(PrivDir, "cgi-bin"),
     ok = file:make_dir(CgiDir),
-    {CgiPrintEnv, CgiSleep} = case test_server:os_type() of
+    {CgiPrintEnv, CgiSleep} = case os:type() of
 				  {win32, _} ->
 				      {"printenv.bat", "cgi_sleep.exe"};
 				  _ ->
@@ -397,7 +397,7 @@ slowdose(Config) when is_list(Config) ->
 %%-------------------------------------------------------------------------
 
 invalid_rfc1123_date() ->
-    [{doc, "Test that a non-DST date is handled correcly"}].
+    [{doc, "Test that a non-DST date is handled correctly"}].
 invalid_rfc1123_date(Config) when is_list(Config) ->
     Rfc1123FormattedDate = "Sun, 26 Mar 2017 01:00:00 GMT",
     NonDSTDateTime = {{2017, 03, 26},{1, 0, 0}},

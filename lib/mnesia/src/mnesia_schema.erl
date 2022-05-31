@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1996-2020. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2022. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -957,13 +957,13 @@ get_ext_types_disc_() ->
             []
     end.
 
-%% Convert attribute name to integer if neccessary
+%% Convert attribute name to integer if necessary
 attr_tab_to_pos(_Tab, Pos) when is_integer(Pos) ->
     Pos;
 attr_tab_to_pos(Tab, Attr) ->
     attr_to_pos(Attr, val({Tab, attributes})).
 
-%% Convert attribute name to integer if neccessary
+%% Convert attribute name to integer if necessary
 attr_to_pos({_} = P, _) -> P;
 attr_to_pos(Pos, _Attrs) when is_integer(Pos) ->
     Pos;
@@ -1024,14 +1024,14 @@ verify_cstruct(#cstruct{} = Cs) ->
 
 expand_index_attrs(#cstruct{index = Ix, attributes = Attrs,
 			    name = Tab} = Cs) ->
-    Prefered = prefered_index_types(Cs),
-    expand_index_attrs(Ix, Tab, Attrs, Prefered).
+    Preferred = prefered_index_types(Cs),
+    expand_index_attrs(Ix, Tab, Attrs, Preferred).
 
-expand_index_attrs(Ix, Tab, Attrs, Prefered) ->
+expand_index_attrs(Ix, Tab, Attrs, Preferred) ->
     lists:map(fun(P) when is_integer(P); is_atom(P) ->
-		      {attr_to_pos(P, Attrs), Prefered};
+		      {attr_to_pos(P, Attrs), Preferred};
 		 ({A} = P) when is_atom(A) ->
-		      {P, Prefered};
+		      {P, Preferred};
 		 ({P, Type}) ->
 		      {attr_to_pos(P, Attrs), Type};
 		 (_Other) ->
@@ -1352,7 +1352,7 @@ check_active([], _Expl, _Tab) ->
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%% Function for definining an external backend type
+%% Function for defining an external backend type
 
 add_backend_type(Name, Module) ->
     case schema_transaction(fun() -> do_add_backend_type(Name, Module) end) of
@@ -2466,10 +2466,12 @@ prepare_op(Tid, {op, add_table_copy, Storage, Node, TabDef}, _WaitFor) ->
 		_  ->
 		    ok
 	    end,
-	    %% Tables are created by mnesia_loader get_network code
-	    insert_cstruct(Tid, Cs, true),
+            mnesia_lib:verbose("~w:~w Adding table~n",[?MODULE,?LINE]),
+
 	    case mnesia_controller:get_network_copy(Tid, Tab, Cs) of
 		{loaded, ok} ->
+                    %% Tables are created by mnesia_loader get_network code
+                    insert_cstruct(Tid, Cs, true),
 		    {true, optional};
 		{not_loaded, ErrReason} ->
 		    Reason = {system_limit, Tab, {Node, ErrReason}},
@@ -3093,7 +3095,7 @@ ext_real_suffixes(Ext) ->
 		    [M || {_,M} <- Ext])
     catch
         error:E ->
-            verbose("Cant find real ext suffixes (~tp)~n", [E]),
+            verbose("Can't find real ext suffixes (~tp)~n", [E]),
             []
     end.
 
@@ -3102,7 +3104,7 @@ ext_tmp_suffixes(Ext) ->
 		    [M || {_,M} <- Ext])
     catch
         error:E ->
-            verbose("Cant find tmp ext suffixes (~tp)~n", [E]),
+            verbose("Can't find tmp ext suffixes (~tp)~n", [E]),
             []
     end.
 

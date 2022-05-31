@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1997-2016. All Rights Reserved.
+%% Copyright Ericsson AB 1997-2021. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -41,7 +41,7 @@
 
 %% --------------------------------------------------------------------------
 %% These operation codes were once identical between efile_drv.c
-%% and ram_file_drv.c, but now these drivers are not depeding on each other.
+%% and ram_file_drv.c, but now these drivers are not depending on each other.
 %% So, the codes could be changed to more logical values now, but why indeed?
 
 %% Defined "file" functions 
@@ -394,7 +394,7 @@ ll_close(Port) ->
 %%% Utility functions.
 
 %% Converts a list of mode atoms into an mode word for the driver.
-%% Returns {Mode, Opts} wher Opts is a list of options for 
+%% Returns {Mode, Opts} where Opts is a list of options for 
 %% erlang:open_port/2, or {error, einval} upon failure.
 
 open_mode(List) when is_list(List) ->

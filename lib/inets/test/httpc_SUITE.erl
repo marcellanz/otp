@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 2004-2021. All Rights Reserved.
+%% Copyright Ericsson AB 2004-2022. All Rights Reserved.
 %% 
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -37,7 +37,7 @@
 -define(TLS_URL_START, "https://").
 -define(NOT_IN_USE_PORT, 8997).
 
-%% Using hardcoded file path to keep it below 107 charaters
+%% Using hardcoded file path to keep it below 107 characters
 %% (maximum length supported by erlang)
 -define(UNIX_SOCKET, "/tmp/inets_httpc_SUITE.sock").
 
@@ -136,7 +136,6 @@ real_requests()->
      invalid_method,
      no_scheme,
      invalid_uri,
-     undefined_port,
      binary_url
     ].
 
@@ -258,8 +257,8 @@ init_per_group(http_unix_socket = Group, Config0) ->
             file:delete(?UNIX_SOCKET),
             start_apps(Group),
             Config = proplists:delete(port, Config0),
-            Port = server_start(Group, server_config(Group, Config)),
-            [{port, Port} | Config]
+            {Pid, Port} = server_start(Group, server_config(Group, Config)),
+            lists:append([{dummy_server_pid, Pid}, {port, Port}], Config)
     end;
 init_per_group(http_ipv6 = Group, Config0) ->
     case is_ipv6_supported() of
@@ -277,7 +276,16 @@ init_per_group(Group, Config0) ->
     Port = server_start(Group, server_config(Group, Config)),
     [{port, Port} | Config].
 
-end_per_group(http_unix_socket,_Config) ->
+end_per_group(http_unix_socket, Config) ->
+    Pid = ?config(dummy_server_pid, Config),
+    Pid ! {stop, self()},
+    %% request is needed for enforcing dummy server and handlers stop; without a
+    %% it, dummy server waits in gen_tcp:accept and will not process stop request
+    httpc:request(get, {"http://localhost/v1/kv/foo", []}, [], []),
+    receive
+        {stopped, DummyServerPid} ->
+            ok
+    end,
     file:delete(?UNIX_SOCKET),
     ok;
 end_per_group(_, _Config) ->
@@ -420,7 +428,7 @@ post() ->
      "only care about the client side of the the post. The server "
      "script will not actually use the post data."}].
 post(Config) when is_list(Config) ->
-    CGI = case test_server:os_type() of
+    CGI = case os:type() of
 	      {win32, _} ->
 		  "/cgi-bin/cgi_echo.exe";
 	      _ ->
@@ -445,7 +453,7 @@ delete() ->
      "only care about the client side of the the delete. The server "
      "script will not actually use the delete data."}].
 delete(Config) when is_list(Config) ->
-    CGI = case test_server:os_type() of
+    CGI = case os:type() of
           {win32, _} ->
           "/cgi-bin/cgi_echo.exe";
           _ ->
@@ -469,7 +477,7 @@ patch() ->
      "only care about the client side of the the patch. The server "
      "script will not actually use the patch data."}].
 patch(Config) when is_list(Config) ->
-    CGI = case test_server:os_type() of
+    CGI = case os:type() of
 	      {win32, _} ->
 		  "/cgi-bin/cgi_echo.exe";
 	      _ ->
@@ -491,7 +499,7 @@ post_stream() ->
      "We only care about the client side of the the post. "
      "The server script will not actually use the post data."}].
 post_stream(Config) when is_list(Config) ->
-    CGI = case test_server:os_type() of
+    CGI = case os:type() of
 	      {win32, _} ->
 		  "/cgi-bin/cgi_echo.exe";
 	      _ ->
@@ -537,7 +545,7 @@ pipeline(Config) when is_list(Config) ->
     Request  = {url(group_name(Config), "/dummy.html", Config), []},
     {ok, _} = httpc:request(get, Request, [], [], pipeline),
 
-    %% Make sure pipeline session is registerd
+    %% Make sure pipeline session is registered
     ct:sleep(4000),
     keep_alive_requests(Request, pipeline).
 
@@ -547,7 +555,7 @@ persistent_connection(Config) when is_list(Config) ->
     Request  = {url(group_name(Config), "/dummy.html", Config), []},
     {ok, _} = httpc:request(get, Request, [], [], persistent),
 
-    %% Make sure pipeline session is registerd
+    %% Make sure pipeline session is registered
     ct:sleep(4000),
     keep_alive_requests(Request, persistent).
 
@@ -966,7 +974,7 @@ no_content_204(Config) when is_list(Config) ->
 
 tolerate_missing_CR() ->
     [{doc, "Test the case that the HTTP server uses only LF instead of CRLF"
-     "as delimitor. Solves OTP-7304"}].
+     "as delimiter. Solves OTP-7304"}].
 tolerate_missing_CR(Config) when is_list(Config) ->
     URL = url(group_name(Config), "/missing_CR.html", Config),
     {ok, {{_,200,_}, _, [_ | _]}} = httpc:request(URL).
@@ -1182,7 +1190,7 @@ headers_dummy(Config) when is_list(Config) ->
 
     %% The dummy server will ignore the headers, we only want to test
     %% that the client header-handling code. This would not
-    %% be a vaild http-request!
+    %% be a valid http-request!
     {ok, {{_,200,_}, [_ | _], [_|_]}} =
 	httpc:request(post,
 		     {URL,
@@ -1365,12 +1373,6 @@ no_scheme(_Config) ->
 invalid_uri(Config) ->
     URL = url(group_name(Config), "/bar?x[]=a", Config),
     {error, invalid_uri} = httpc:request(URL),
-    ok.
-
-%%-------------------------------------------------------------------------
-
-undefined_port(_Config) ->
-    {error, {failed_connect, _Reason}} = httpc:request("http://:"),
     ok.
 
 
@@ -1562,7 +1564,7 @@ custom_receive() ->
             ct:log("Message received: ~p", [Msg])
     after
         1000 ->
-            ct:fail("Timeout: did not recive packet")
+            ct:fail("Timeout: did not receive packet")
     end.
 
 %% Custom server is used to test special cases when using chunked encoding
@@ -1681,7 +1683,7 @@ chunkify_receive() ->
             end
     after
         1000 ->
-            ct:fail("Timeout: did not recive packet")
+            ct:fail("Timeout: did not receive packet")
     end.
 %%--------------------------------------------------------------------
 stream_fun_server_close() ->
@@ -1955,9 +1957,9 @@ server_start(http_unix_socket, Config) ->
     Inet = local,
     Socket = proplists:get_value(unix_socket, Config),
     ok = httpc:set_options([{ipfamily, Inet},{unix_socket, Socket}]),
-    {_Pid, Port} = http_test_lib:dummy_server(unix_socket, Inet, [{content_cb, ?MODULE},
+    {Pid, Port} = http_test_lib:dummy_server(unix_socket, Inet, [{content_cb, ?MODULE},
                                                                   {unix_socket, Socket}]),
-    Port;
+    {Pid, Port};
 server_start(http_ipv6, HttpdConfig) ->
     {ok, Pid} = inets:start(httpd, HttpdConfig),
     Serv = inets:services_info(),
@@ -2051,7 +2053,7 @@ setup_server_dirs(ServerRoot, DocRoot, DataDir) ->
 			       end
 		  end, Files),
     
-    Cgi = case test_server:os_type() of
+    Cgi = case os:type() of
 	      {win32, _} ->
 		  "cgi_echo.exe";
 	      _ ->
@@ -2093,7 +2095,7 @@ receive_replys([ID|IDs]) ->
 	{http, {ID, {{_, 200, _}, [_|_], _}}} ->
 	    receive_replys(IDs);
 	{http, {Other, {{_, 200, _}, [_|_], _}}} ->
-	    ct:pal({recived_canceld_id, Other})
+	    ct:pal("~p",[{recived_canceld_id, Other}])
     end.
 
 
@@ -2356,14 +2358,14 @@ content_type_header([{"content-type", Value}|_]) ->
 content_type_header([_|T]) ->
     content_type_header(T).
 
-handle_auth("Basic " ++ UserInfo, Challange, DefaultResponse) ->
+handle_auth("Basic " ++ UserInfo, Challenge, DefaultResponse) ->
     case string:tokens(base64:decode_to_string(UserInfo), ":") of
 	["alladin", "sesame"] = Auth ->
 	    ct:print("Auth: ~p~n", [Auth]),
 	    DefaultResponse;
 	Other ->
 	    ct:print("UnAuth: ~p~n", [Other]),
-	    Challange
+	    Challenge
     end.
 
 check_cookie([]) ->
@@ -2572,14 +2574,14 @@ handle_uri(_,"/redirectloop.html",Port,_,Socket,_) ->
 	++ "\r\n\r\n" ++ Body;
 
 handle_uri(_,"/userinfo.html", _,Headers,_, DefaultResponse) ->
-    Challange = "HTTP/1.1 401 Unauthorized \r\n" ++
+    Challenge = "HTTP/1.1 401 Unauthorized \r\n" ++
 	"WWW-Authenticate:Basic" ++"\r\n" ++
 	"Content-Length:0\r\n\r\n",
     case auth_header(Headers) of
 	{ok, Value} ->
-	    handle_auth(Value, Challange, DefaultResponse);
+	    handle_auth(Value, Challenge, DefaultResponse);
 	_ ->
-	    Challange
+	    Challenge
     end;
 
 handle_uri(_,"/dummy_headers.html",_,_,Socket,_) ->

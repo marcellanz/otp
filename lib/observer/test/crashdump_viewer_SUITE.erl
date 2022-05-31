@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2003-2018. All Rights Reserved.
+%% Copyright Ericsson AB 2003-2021. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -45,11 +45,18 @@ init_per_testcase(start_stop, Config) ->
 	case os:type() of
 	    {unix,darwin} ->
 		exit("Can not test on MacOSX");
+            {unix,sunos} ->
+                exit("Skip on sunos, for now");
 	    {unix, _} ->
-		io:format("DISPLAY ~s~n", [os:getenv("DISPLAY")]),
+                Display = os:getenv("DISPLAY"),
+		io:format("DISPLAY ~s~n", [Display]),
 		case ct:get_config(xserver, none) of
 		    none -> ignore;
-		    Server -> os:putenv("DISPLAY", Server)
+                    Display -> ok;
+		    Server ->
+                        os:putenv("DISPLAY", Server), %% Might work if new node is spawned
+                        io:format("Config sets other x-server than the DISPLAY\n"
+                                  "the DISPLAY variable must be set when starting erlang")
 		end;
 	    _ -> ignore
 	end,
@@ -180,7 +187,7 @@ start_stop(Config) when is_list(Config) ->
     ok.
 
 recv_downs([]) ->
-    ct:log("'DOWN' received from all registered proceses~n", []),
+    ct:log("'DOWN' received from all registered processes~n", []),
     ok;
 recv_downs(Regs) ->
     receive

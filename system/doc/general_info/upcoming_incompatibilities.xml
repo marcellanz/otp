@@ -4,7 +4,7 @@
 <chapter>
   <header>
     <copyright>
-      <year>2021</year>
+      <year>2021</year><year>2022</year>
       <holder>Ericsson AB. All Rights Reserved.</holder>
     </copyright>
     <legalnotice>
@@ -89,6 +89,59 @@
 	distribution yourself, you are, however, encouraged to
 	implement the new link protocol as soon as possible since the
 	old protocol can cause links to enter an inconsistent state.
+      </p>
+    </section>
+
+    <section>
+      <marker id="atoms_be_utf8"/>
+      <title>Atoms will be encoded as UTF-8 by default</title>
+      <p>
+	As of OTP 26, the functions
+        <seemfa marker="erts:erlang#term_to_binary/1">
+        <c>erlang:term_to_binary/1,2</c></seemfa> and
+        <seemfa marker="erts:erlang#term_to_iovec/1">
+        <c>erlang:term_to_iovec/1,2</c></seemfa> will encode all atoms as
+        UTF-8 by default. The current default behavior is to encode atoms as
+        Latin-1 if possible.
+      </p>
+      <p>
+	If you implement your own decoding of the Erlang external format you
+        must either:
+      </p>
+      <list type="bulleted">
+        <item>
+          <p>
+            Make sure your implementation supports the UTF-8 encodings
+            <seeguide marker="erts:erl_ext_dist#ATOM_UTF8_EXT">
+              <c>ATOM_UTF8_EXT</c></seeguide> and
+            <seeguide marker="erts:erl_ext_dist#SMALL_ATOM_UTF8_EXT">
+              <c>SMALL_ATOM_UTF8_EXT</c></seeguide>.
+          </p>
+        </item>
+        <item>
+          <p>
+            Call <seemfa marker="erts:erlang#term_to_binary/2">
+            <c>erlang:term_to_binary/2</c></seemfa> or
+            <seemfa marker="erts:erlang#term_to_iovec/2">
+            <c>erlang:term_to_iovec/2</c></seemfa>
+            with option <c>{minor_version,1}</c> to force Latin-1 encoding. This
+            is a more short-term solution as Latin-1 encoding may be phased out
+            and removed in later OTP releases.
+          </p>
+        </item>
+      </list>
+    </section>
+
+    <section>
+      <title>The default timewarp mode will change to multi-time warp mode</title>
+      <p>
+	The default <seeguide marker="erts:time_correction#Time_Warp_Modes">
+        Time Warp Mode</seeguide> will be changed from
+        <seeguide marker="erts:time_correction#No_Time_Warp_Mode">
+        no time warp mode</seeguide> to <seeguide marker="erts:time_correction#Multi_Time_Warp_Mode">
+        multi-time warp mode</seeguide>. See <seeguide marker="erts:time_correction">
+        Time and Time Correction in Erlang</seeguide> for details on how this will
+        effect your system.
       </p>
     </section>
 

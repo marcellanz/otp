@@ -1,8 +1,8 @@
-%% 
+%%
 %% %CopyrightBegin%
-%% 
-%% Copyright Ericsson AB 1996-2020. All Rights Reserved.
-%% 
+%%
+%% Copyright Ericsson AB 1996-2022. All Rights Reserved.
+%%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
 %% You may obtain a copy of the License at
@@ -14,9 +14,9 @@
 %% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 %% See the License for the specific language governing permissions and
 %% limitations under the License.
-%% 
+%%
 %% %CopyrightEnd%
-%% 
+%%
 -module(snmp).
 
 
@@ -264,7 +264,7 @@ set_module_trace(Module, Opts) ->
 	    {value, {return_trace, false}} ->
 		[];
 	    _ ->
-		%% Default is allways  to include return values
+		%% Default is always  to include return values
 		[{return_trace}]
 	end,
     TraceRes = 
@@ -608,13 +608,7 @@ mod_version_info(Mod) ->
 			 [{compiler_version, Ver}];
 		     not_found ->
 			 []
-		 end ++
-		     case key1search(time, Comp) of
-			 {value, Ver} ->
-			     [{compile_time, Ver}];
-			 not_found ->
-			     []
-		     end;
+		 end;
 	     not_found ->
 		 []
 	 end ++
@@ -671,7 +665,7 @@ short_time({{Y,M,D},{H,Mi,S}}) ->
     [y1(Y), y2(Y), M, D, H, Mi, S, 0].
 
 %% This function will only be called if there has been some 
-%% validation error, and as it is strict, it allways returns 
+%% validation error, and as it is strict, it always returns 
 %% false. 
 strict_validation(_What, _Data) ->
     false.

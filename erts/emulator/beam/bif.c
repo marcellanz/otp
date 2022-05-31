@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 1996-2020. All Rights Reserved.
+ * Copyright Ericsson AB 1996-2022. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -45,7 +45,11 @@
 #include "erl_map.h"
 #include "erl_msacc.h"
 #include "erl_proc_sig_queue.h"
+#include "erl_fun.h"
+#include "ryu.h"
 #include "jit/beam_asm.h"
+#include "erl_global_literals.h"
+#include "beam_load.h"
 
 Export *erts_await_result;
 static Export await_exit_trap;
@@ -53,7 +57,10 @@ static Export* flush_monitor_messages_trap = NULL;
 static Export* set_cpu_topology_trap = NULL;
 static Export* await_port_send_result_trap = NULL;
 Export* erts_format_cpu_topology_trap = NULL;
-static Export dsend_continue_trap_export;
+#ifndef DEBUG
+static
+#endif
+Export dsend_continue_trap_export;
 Export *erts_convert_time_unit_trap = NULL;
 
 static Export *await_msacc_mod_trap = NULL;
@@ -125,8 +132,10 @@ BIF_RETTYPE link_1(BIF_ALIST_1)
 
         rlnk = erts_link_internal_create(ERTS_LNK_TYPE_PROC, BIF_P->common.id);
 
-        if (erts_proc_sig_send_link(BIF_P, BIF_ARG_1, rlnk))
+        if (erts_proc_sig_send_link(&BIF_P->common, BIF_P->common.id,
+                                    BIF_ARG_1, rlnk)) {
             BIF_RET(am_true);
+        }
 
         erts_link_tree_delete(&ERTS_P_LINKS(BIF_P), lnk);
         erts_link_internal_release(lnk);
@@ -247,8 +256,7 @@ BIF_RETTYPE link_1(BIF_ALIST_1)
                 }
                 erts_link_set_dead_dist(&elnk->ld.dist, dep->sysname);
             }
-            erts_proc_sig_send_link_exit(NULL, THE_NON_VALUE, &elnk->ld.dist,
-                                         am_noconnection, NIL);
+            erts_proc_sig_send_link_exit_noconnection(&elnk->ld.dist);
             break;
 
         case ERTS_DSIG_PREP_PENDING:
@@ -354,7 +362,6 @@ demonitor(Process *c_p, Eterm ref, Eterm *multip)
        return am_false; /* Not a monitor (may have been...) */
 
    switch (mon->flags & ERTS_ML_STATE_ALIAS_MASK) {
-   case ERTS_ML_STATE_ALIAS_ONCE:
    case ERTS_ML_STATE_ALIAS_UNALIAS: {
        ErtsMonitorData *amdp = erts_monitor_create(ERTS_MON_TYPE_ALIAS,
                                                    ref,
@@ -366,6 +373,7 @@ demonitor(Process *c_p, Eterm ref, Eterm *multip)
        erts_monitor_tree_replace(&ERTS_P_MONITORS(c_p), mon, &amdp->origin);
        break;
    }
+   case ERTS_ML_STATE_ALIAS_ONCE:
    case ERTS_ML_STATE_ALIAS_DEMONITOR:
        erts_pid_ref_delete(ref);
        /* fall through... */
@@ -391,7 +399,7 @@ demonitor(Process *c_p, Eterm ref, Eterm *multip)
    }
 
    case ERTS_MON_TYPE_PROC:
-       erts_proc_sig_send_demonitor(mon);
+       erts_proc_sig_send_demonitor(&c_p->common, c_p->common.id, 0, mon);
        return am_true;
 
    case ERTS_MON_TYPE_DIST_PROC: {
@@ -673,9 +681,12 @@ static BIF_RETTYPE monitor(Process *c_p, Eterm type, Eterm target,
                 mdp->origin.flags |= add_oflags;
                 erts_monitor_tree_insert(&ERTS_P_MONITORS(c_p),
                                          &mdp->origin);
-                if (!erts_proc_sig_send_monitor(&mdp->u.target, id))
-                    erts_proc_sig_send_monitor_down(&mdp->u.target,
+                if (!erts_proc_sig_send_monitor(&c_p->common, c_p->common.id,
+                                                &mdp->u.target, id)) {
+                    erts_proc_sig_send_monitor_down(NULL, id,
+                                                    &mdp->u.target,
                                                     am_noproc);
+                }
             }
 
             goto done;
@@ -718,7 +729,9 @@ static BIF_RETTYPE monitor(Process *c_p, Eterm type, Eterm target,
             case ERTS_DSIG_PREP_NOT_ALIVE:
             case ERTS_DSIG_PREP_NOT_CONNECTED:
                 erts_monitor_set_dead_dist(&mdp->u.target, dep->sysname);
-                erts_proc_sig_send_monitor_down(&mdp->u.target, am_noconnection);
+                erts_proc_sig_send_monitor_down(NULL, id,
+                                                &mdp->u.target,
+                                                am_noconnection);
                 code = ERTS_DSIG_SEND_OK;
                 break;
 
@@ -782,8 +795,10 @@ static BIF_RETTYPE monitor(Process *c_p, Eterm type, Eterm target,
             mdp->origin.flags |= add_oflags;
             erts_monitor_tree_insert(&ERTS_P_MONITORS(c_p), &mdp->origin);
             prt = erts_port_lookup(id, ERTS_PORT_SFLGS_INVALID_LOOKUP);
-            if (!prt || erts_port_monitor(c_p, prt, &mdp->u.target) == ERTS_PORT_OP_DROPPED)
-                erts_proc_sig_send_monitor_down(&mdp->u.target, am_noproc);
+            if (!prt || erts_port_monitor(c_p, prt, &mdp->u.target) == ERTS_PORT_OP_DROPPED) {
+                erts_proc_sig_send_monitor_down(prt ? &prt->common : NULL, id,
+                                                &mdp->u.target, am_noproc);
+            }
             goto done;
         }
 
@@ -960,8 +975,7 @@ BIF_RETTYPE spawn_opt_4(BIF_ALIST_4)
 BIF_RETTYPE erts_internal_spawn_request_4(BIF_ALIST_4)
 {
     ErlSpawnOpts so;
-    Eterm tmp_heap_mfna[4];
-    Eterm tmp_heap_alist[4 + 2];
+    Eterm *hp;
     Sint arity;
     int opts_error;
     Eterm tag, tmp, error;
@@ -991,16 +1005,18 @@ BIF_RETTYPE erts_internal_spawn_request_4(BIF_ALIST_4)
         goto badopt;
     }
 
-    /* Make argument list for erts_internal:spawn_init/1 */
-    tmp = TUPLE3(&tmp_heap_alist[0], BIF_ARG_1, BIF_ARG_2, BIF_ARG_3);
-    tmp = CONS(&tmp_heap_alist[4], tmp, NIL);
+    hp = HAlloc(BIF_P, 4 + 4 + 2);
 
-    so.mfa = TUPLE3(&tmp_heap_mfna[0], BIF_ARG_1, BIF_ARG_2, make_small(arity));    
+    /* Make argument list for erts_internal:spawn_init/1 */
+    tmp = TUPLE3(hp, BIF_ARG_1, BIF_ARG_2, BIF_ARG_3); hp += 4;
+    tmp = CONS(hp, tmp, NIL); hp += 2;
+
+    so.mfa = TUPLE3(hp, BIF_ARG_1, BIF_ARG_2, make_small(arity)); hp += 4;
     so.flags |= SPO_ASYNC;
     so.mref = THE_NON_VALUE;
     so.tag = tag;
     so.opts = BIF_ARG_4;
-    
+
     /*
      * Spawn the process.
      */
@@ -1097,7 +1113,7 @@ BIF_RETTYPE unlink_1(BIF_ALIST_1)
         ilnk = (ErtsILink *) erts_link_tree_lookup(ERTS_P_LINKS(BIF_P),
                                                    BIF_ARG_1);
         if (ilnk && !ilnk->unlinking) {
-            Uint64 id = erts_proc_sig_send_unlink(BIF_P,
+            Uint64 id = erts_proc_sig_send_unlink(&BIF_P->common,
                                                   BIF_P->common.id,
                                                   &ilnk->link);
             if (id)
@@ -1130,7 +1146,8 @@ BIF_RETTYPE unlink_1(BIF_ALIST_1)
             else {
                 ErtsSigUnlinkOp *sulnk;
 
-                sulnk = erts_proc_sig_make_unlink_op(BIF_P, BIF_P->common.id);
+                sulnk = erts_proc_sig_make_unlink_op(&BIF_P->common,
+                                                     BIF_P->common.id);
                 ilnk->unlinking = sulnk->id;
 #ifdef DEBUG
 		ref = NIL;
@@ -1168,7 +1185,7 @@ BIF_RETTYPE unlink_1(BIF_ALIST_1)
         if (elnk->unlinking)
             BIF_RET(am_true);
 
-        unlink_id = erts_proc_sig_new_unlink_id(BIF_P);
+        unlink_id = erts_proc_sig_new_unlink_id(&BIF_P->common);
         elnk->unlinking = unlink_id;
 
 	code = erts_dsig_prepare(&ctx, dep, BIF_P, ERTS_PROC_LOCK_MAIN,
@@ -1309,7 +1326,7 @@ BIF_RETTYPE error_3(BIF_ALIST_3)
 /**********************************************************************/
 /*
  * This is like exactly like error/1. The only difference is
- * that Dialyzer thinks that it it will return an arbitrary term.
+ * that Dialyzer thinks that it will return an arbitrary term.
  * It is useful in stub functions for NIFs.
  */
 
@@ -1322,7 +1339,7 @@ BIF_RETTYPE nif_error_1(BIF_ALIST_1)
 /**********************************************************************/
 /*
  * This is like exactly like error/2. The only difference is
- * that Dialyzer thinks that it it will return an arbitrary term.
+ * that Dialyzer thinks that it will return an arbitrary term.
  * It is useful in stub functions for NIFs.
  */
 
@@ -1392,7 +1409,7 @@ BIF_RETTYPE raise_3(BIF_ALIST_3)
 	switch (arityval(tp[0])) {
 	case 2:
 	    /* {Fun,Args} */
-	    if (is_fun(tp[1])) {
+	    if (is_any_fun(tp[1])) {
 		must_copy = 1;
 	    } else {
 		goto error;
@@ -1404,7 +1421,7 @@ BIF_RETTYPE raise_3(BIF_ALIST_3)
 	     * {Fun,Args,Location}
 	     * {M,F,A}
 	     */
-	    if (is_fun(tp[1])) {
+	    if (is_any_fun(tp[1])) {
 		location = tp[3];
 	    } else if (is_atom(tp[1]) && is_atom(tp[2])) {
 		must_copy = 1;
@@ -1542,7 +1559,7 @@ static BIF_RETTYPE send_exit_signal_bif(Process *c_p, Eterm id, Eterm reason, in
                               && c_p->common.id == id
                               && (reason == am_kill
                                   || !(c_p->flags & F_TRAP_EXIT)));
-         erts_proc_sig_send_exit(c_p, c_p->common.id, id,
+         erts_proc_sig_send_exit(&c_p->common, c_p->common.id, id,
                                  reason, NIL, exit2_suicide);
          if (!exit2_suicide)
              ERTS_BIF_PREP_RET(ret_val, am_true);
@@ -2642,7 +2659,7 @@ done:
 
 /**********************************************************************/
 
-/* returns the head of a list - this function is unecessary
+/* returns the head of a list - this function is unnecessary
    and is only here to keep Robert happy (Even more, since it's OP as well) */
 BIF_RETTYPE hd_1(BIF_ALIST_1)
 {
@@ -2983,6 +3000,9 @@ BIF_RETTYPE make_tuple_2(BIF_ALIST_2)
     if (is_not_small(BIF_ARG_1) || (n = signed_val(BIF_ARG_1)) < 0 || n > ERTS_MAX_TUPLE_SIZE) {
 	BIF_ERROR(BIF_P, BADARG);
     }
+    if (n == 0) {
+        return ERTS_GLOBAL_LIT_EMPTY_TUPLE;
+    }
     hp = HAlloc(BIF_P, n+1);
     res = make_tuple(hp);
     *hp++ = make_arityval(n);
@@ -2999,17 +3019,21 @@ BIF_RETTYPE make_tuple_3(BIF_ALIST_3)
     Eterm* hp;
     Eterm res;
     Eterm list = BIF_ARG_3;
-    Eterm* tup;
+    Eterm* tup = NULL;
 
     if (is_not_small(BIF_ARG_1) || (n = signed_val(BIF_ARG_1)) < 0 || n > ERTS_MAX_TUPLE_SIZE) {
     error:
 	BIF_ERROR(BIF_P, BADARG);
     }
     limit = (Uint) n;
-    hp = HAlloc(BIF_P, n+1);
-    res = make_tuple(hp);
-    *hp++ = make_arityval(n);
-    tup = hp;
+    if (n == 0) {
+        res = ERTS_GLOBAL_LIT_EMPTY_TUPLE;
+    } else {
+        hp = HAlloc(BIF_P, n+1);
+        res = make_tuple(hp);
+        *hp++ = make_arityval(n);
+        tup = hp;
+    }
     while (n--) {
 	*hp++ = BIF_ARG_2;
     }
@@ -3126,6 +3150,10 @@ BIF_RETTYPE delete_element_2(BIF_ALIST_3)
 	BIF_ERROR(BIF_P, BADARG);
     }
 
+    if (arity == 1) {
+        return ERTS_GLOBAL_LIT_EMPTY_TUPLE;
+    }
+
     hp  = HAlloc(BIF_P, arity + 1 - 1);
     res = make_tuple(hp);
     *hp = make_arityval(arity - 1);
@@ -3148,7 +3176,7 @@ BIF_RETTYPE atom_to_list_1(BIF_ALIST_1)
 {
     Atom* ap;
     Uint num_chars, num_built, num_eaten;
-    byte* err_pos;
+    const byte* err_pos;
     Eterm res;
     int ares;
 
@@ -3381,7 +3409,7 @@ BIF_RETTYPE list_to_integer_2(BIF_ALIST_2)
 {
   /* Bif implementation is about 50% faster than pure erlang,
      and since we have erts_chars_to_integer now it is simpler
-     as well. This could be optmized further if we did not have to
+     as well. This could be optimized further if we did not have to
      copy the list to buf. */
     Sint i;
     Eterm res, dummy;
@@ -3415,6 +3443,7 @@ static int do_float_to_charbuf(Process *p, Eterm efloat, Eterm list,
     int compact = 0;
     enum fmt_type_ {
         FMT_LEGACY,
+        FMT_SHORT,
         FMT_FIXED,
         FMT_SCIENTIFIC
     } fmt_type = FMT_LEGACY;
@@ -3443,16 +3472,26 @@ static int do_float_to_charbuf(Process *p, Eterm efloat, Eterm list,
                         continue;
                 }
             }
+        } else if (arg == am_short) {
+            fmt_type = FMT_SHORT;
+            continue;
         }
         goto badarg;
     }
+
     if (is_not_nil(list)) {
         goto badarg;
     }
 
     GET_DOUBLE(efloat, f);
 
-    if (fmt_type == FMT_FIXED) {
+    if (fmt_type == FMT_SHORT) {
+        const int index = d2s_buffered_n(f.fd, fbuf);
+
+        /* Terminate the string. */
+        fbuf[index] = '\0';
+        return index;
+    } else if (fmt_type == FMT_FIXED) {
         return sys_double_to_chars_fast(f.fd, fbuf, sizeof_fbuf,
                 decimals, compact);
     } else {
@@ -3831,7 +3870,9 @@ BIF_RETTYPE list_to_tuple_1(BIF_ALIST_1)
     if ((len = erts_list_length(list)) < 0 || len > ERTS_MAX_TUPLE_SIZE) {
 	BIF_ERROR(BIF_P, BADARG);
     }
-
+    if (len == 0) {
+        BIF_RET(ERTS_GLOBAL_LIT_EMPTY_TUPLE);
+    }
     hp = HAlloc(BIF_P, len+1);
     res = make_tuple(hp);
     *hp++ = make_arityval(len);
@@ -4271,7 +4312,7 @@ BIF_RETTYPE halt_2(BIF_ALIST_2)
 	erts_exit(ERTS_ABORT_EXIT, "");
     }
     else if (is_list(BIF_ARG_1) || BIF_ARG_1 == NIL) {
-#       define HALT_MSG_SIZE 200
+#       define HALT_MSG_SIZE 1023
         static byte halt_msg[4*HALT_MSG_SIZE+1];
         Sint written;
 
@@ -4367,21 +4408,28 @@ BIF_RETTYPE ref_to_list_1(BIF_ALIST_1)
 
 BIF_RETTYPE make_fun_3(BIF_ALIST_3)
 {
-    Eterm* hp;
+    ErlFunThing *funp;
+    Eterm *hp;
+    Export *ep;
     Sint arity;
 
-    if (is_not_atom(BIF_ARG_1) || is_not_atom(BIF_ARG_2) || is_not_small(BIF_ARG_3)) {
-    error:
-	BIF_ERROR(BIF_P, BADARG);
+    if (is_not_atom(BIF_ARG_1) ||
+        is_not_atom(BIF_ARG_2) ||
+        is_not_small(BIF_ARG_3)) {
+        BIF_ERROR(BIF_P, BADARG);
     }
+
     arity = signed_val(BIF_ARG_3);
-    if (arity < 0) {
-	goto error;
+    if (arity < 0 || arity > MAX_ARG) {
+        BIF_ERROR(BIF_P, BADARG);
     }
-    hp = HAlloc(BIF_P, 2);
-    hp[0] = HEADER_EXPORT;
-    hp[1] = (Eterm) erts_export_get_or_make_stub(BIF_ARG_1, BIF_ARG_2, (Uint) arity);
-    BIF_RET(make_export(hp));
+
+    hp = HAlloc(BIF_P, ERL_FUN_SIZE);
+
+    ep = erts_export_get_or_make_stub(BIF_ARG_1, BIF_ARG_2, (Uint) arity);
+    funp = erts_new_export_fun_thing(&hp, ep, arity);
+
+    BIF_RET(make_fun(funp));
 }
 
 BIF_RETTYPE fun_to_list_1(BIF_ALIST_1)
@@ -4389,8 +4437,10 @@ BIF_RETTYPE fun_to_list_1(BIF_ALIST_1)
     Process* p = BIF_P;
     Eterm fun = BIF_ARG_1;
 
-    if (is_not_any_fun(fun))
-	BIF_ERROR(p, BADARG);
+    if (is_not_any_fun(fun)) {
+        BIF_ERROR(p, BADARG);
+    }
+
     BIF_RET(term2list_dsprintf(p, fun));
 }
 
@@ -4416,7 +4466,7 @@ BIF_RETTYPE port_to_list_1(BIF_ALIST_1)
 
 /**********************************************************************/
 
-/* convert a list of ascii characeters of the form
+/* convert a list of ascii characters of the form
    <node.number.serial> to a PID
 */
 
@@ -5142,6 +5192,14 @@ BIF_RETTYPE system_flag_2(BIF_ALIST_2)
 		  threads);
       }
 #endif
+    } else if (BIF_ARG_1 == am_outstanding_system_requests_limit) {
+        Uint val;
+	if (!term_to_Uint(BIF_ARG_2, &val))
+            goto error;
+        val = erts_set_outstanding_system_requests_limit(val);
+        if (!val)
+            goto error;
+        BIF_RET(make_small(val));
     } else if (ERTS_IS_ATOM_STR("scheduling_statistics", BIF_ARG_1)) {
 	int what;
 	if (ERTS_IS_ATOM_STR("disable", BIF_ARG_2))
@@ -5393,7 +5451,7 @@ void erts_init_trap_export(Export *ep, Eterm m, Eterm f, Uint a,
     }
 
 #ifdef BEAMASM
-    ep->addresses[ERTS_SAVE_CALLS_CODE_IX] = beam_save_calls;
+    ep->dispatch.addresses[ERTS_SAVE_CALLS_CODE_IX] = beam_save_calls;
 #endif
 
     ep->bif_number = -1;

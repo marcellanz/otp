@@ -286,7 +286,8 @@ opt_defaults() ->
 opt_negations() ->
     [{no_preprocess, preprocess},
      {no_subpackages, subpackages},
-     {no_report_missing_types, report_missing_types}].
+     {no_report_missing_types, report_missing_types},
+     {no_link_predefined_types, link_predefined_types}].
 
 %% @doc Runs EDoc on a given set of source files. Note
 %% that the doclet plugin module has its own particular options; see the
@@ -561,7 +562,7 @@ read_comments(File) ->
 
 %% @doc Extracts comments from an Erlang source code file. See the
 %% module {@link //syntax_tools/erl_comment_scan} for details on the
-%% representation of comments. Currently, no options are avaliable.
+%% representation of comments. Currently, no options are available.
 
 -spec read_comments(File, Opts) -> [comment()] when
       File :: filename(),
@@ -612,6 +613,15 @@ read_source(Name) ->
 %%      The default value is `false'.
 %%      `no_report_missing_types' is an alias for
 %%      `{report_missing_types, false}'.
+%%  </dd>
+%%  <dt>{@type {link_predefined_types, boolean()@}}
+%%  </dt>
+%%  <dd>If the value is `true', all predefined data types will have a link
+%%      to the erlang module. This option is to be used when generating
+%%      documentation for the Erlang/OTP docs.
+%%      The default value is `false'.
+%%      `no_link_predefined_types' is an alias for
+%%      `{link_predefined_types, false}'.
 %%  </dd>
 %% </dl>
 %%

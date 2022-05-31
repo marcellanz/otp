@@ -1,7 +1,7 @@
 %% 
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2002-2020. All Rights Reserved.
+%% Copyright Ericsson AB 2002-2022. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -26,7 +26,7 @@
 -export([tc_try/2, tc_try/3,
          tc_try/4, tc_try/5]).
 -export([proxy_call/3]).
--export([hostname/0, hostname/1, localhost/0, localhost/1, os_type/0, sz/1,
+-export([hostname/0, hostname/1, localhost/0, localhost/1, sz/1,
 	 display_suite_info/1]).
 -export([non_pc_tc_maybe_skip/4,
          os_based_skip/1,
@@ -41,8 +41,7 @@
 -export([hours/1, minutes/1, seconds/1, sleep/1]).
 -export([flush_mqueue/0, mqueue/0, mqueue/1, trap_exit/0, trap_exit/1]).
 -export([ping/1, local_nodes/0, nodes_on/1]).
--export([start_node/2, stop_node/1]).
--export([is_app_running/1, 
+-export([is_app_running/1,
 	 is_crypto_running/0, is_mnesia_running/0, is_snmp_running/0,
          ensure_not_running/3]).
 -export([crypto_start/0, crypto_support/0]).
@@ -71,7 +70,7 @@
 %%         conditions.
 %% Pre:    A fun that is nominally part of the test case
 %%         but is an initiation that must be "undone". This is
-%%         done by the Post fun (regardless if the TC is successfull
+%%         done by the Post fun (regardless if the TC is successful
 %%         or not). Example: Starts a couple of nodes,
 %% TC:     The test case fun
 %% Post:   A fun that undo what was done by the Pre fun.
@@ -119,7 +118,7 @@ tc_try(Case, TCCond, Pre, TC, Post)
                                                 (C =:= exit) ->
                             tc_print("test case (~w) skip: try post", [C]),
                             (catch Post(State)),
-                            tc_end( f("skipping(catched,~w,tc)", [C]) ),
+                            tc_end( f("skipping(caught,~w,tc)", [C]) ),
                             SKIP;
                         C:E:S ->
                             %% We always check the system events
@@ -130,7 +129,7 @@ tc_try(Case, TCCond, Pre, TC, Post)
                                 [] ->
                                     tc_print("test case failed: try post"),
                                     (catch Post(State)),
-                                    tc_end( f("failed(catched,~w,tc)", [C]) ),
+                                    tc_end( f("failed(caught,~w,tc)", [C]) ),
                                     erlang:raise(C, E, S);
                                 SysEvs ->
                                     tc_print("System Events received during tc: "
@@ -150,7 +149,7 @@ tc_try(Case, TCCond, Pre, TC, Post)
             catch
                 C:{skip, _} = SKIP when (C =:= throw) orelse
                                         (C =:= exit) ->
-                    tc_end( f("skipping(catched,~w,tc-pre)", [C]) ),
+                    tc_end( f("skipping(caught,~w,tc-pre)", [C]) ),
                     SKIP;
                 C:E:S ->
                     %% We always check the system events
@@ -162,7 +161,7 @@ tc_try(Case, TCCond, Pre, TC, Post)
                                      "~n   E: ~p"
                                      "~n   S: ~p",
                                      [C, E, S]),
-                            tc_end( f("auto-skip(catched,~w,tc-pre)", [C]) ),
+                            tc_end( f("auto-skip(caught,~w,tc-pre)", [C]) ),
                             SKIP = {skip, f("TC-Pre failure (~w)", [C])},
                             SKIP;
                         SysEvs ->
@@ -186,13 +185,13 @@ tc_try(Case, TCCond, Pre, TC, Post)
             exit({tc_cond_failed, Reason})
     catch
         C:{skip, _} = SKIP when ((C =:= throw) orelse (C =:= exit)) ->
-            tc_end( f("skipping(catched,~w,cond)", [C]) ),
+            tc_end( f("skipping(caught,~w,cond)", [C]) ),
             SKIP;
         C:E:S ->
             %% We always check the system events before we accept a failure
             case snmp_test_global_sys_monitor:events() of
                 [] ->
-                    tc_end( f("failed(catched,~w,cond)", [C]) ),
+                    tc_end( f("failed(caught,~w,cond)", [C]) ),
                     erlang:raise(C, E, S);
                 SysEvs ->
                     tc_print("System Events received: "
@@ -412,16 +411,6 @@ sz(B) when is_binary(B) ->
 sz(O) ->
     {unknown_size,O}.
 
-
-os_type() ->
-    case (catch test_server:os_type()) of
-	{'EXIT', _} ->
-	    %% Pre-R10 test server does not have this function
-	    os:type();
-	OsType ->
-	    OsType
-    end.
-
 display_suite_info(SUITE) when is_atom(SUITE) ->
     (catch do_display_suite_info(SUITE)).
 
@@ -468,6 +457,26 @@ display_app_version(MI) ->
 %% ----------------------------------------------------------------
 %% Conditional skip of testcases
 %%
+
+%% maybe_skip([]) ->
+%%     ok;
+%% maybe_skip([{Desc, F}|Funs]) when is_function(F, 0) ->
+%%     iprint("Check skip condition: ~s", [Desc]),
+%%     try F() of
+%%         {skip, _} = SKIP ->
+%%             iprint("Skip condition fulfilled: SKIP", [Desc]),
+%%             SKIP;
+%%         _ ->
+%%             maybe_skip(Funs)
+%%     catch
+%%         C:E:S ->
+%%             iprint("Skip condition failed - ignoring"
+%%                    "~n      Class: ~p"
+%%                    "~n      Error: ~p"
+%%                    "~n      Stack: ~p", [C, E, S]),
+%%             maybe_skip(Funs)
+%%     end.
+
 
 non_pc_tc_maybe_skip(Config, Condition, File, Line)
   when is_list(Config) andalso is_function(Condition) ->
@@ -573,7 +582,16 @@ has_support_ipv6() ->
             %% so for windows we need to use the old style...
             old_has_support_ipv6();
         _ ->
-            socket:is_supported(ipv6) andalso has_valid_ipv6_address()
+            %% Socket can *also* be configured out, so we need to catch...
+            try socket:is_supported(ipv6) of
+                true ->
+                    has_valid_ipv6_address();
+                false ->
+                    false
+            catch
+                _:_:_ ->
+                    old_has_support_ipv6()
+            end
     end.
 
 has_valid_ipv6_address() ->
@@ -710,7 +728,12 @@ init_per_suite(Config) ->
                     {skip, "Unstable host and/or os (or combo thererof)"};
                 false ->
                     snmp_test_global_sys_monitor:start(),
-                    [{snmp_factor, Factor} | Config]
+                    case lists:keysearch(label, 1, HostInfo) of
+                        {value, Label} ->
+                            [{snmp_factor, Factor}, Label | Config];
+                        false ->
+                            [{snmp_factor, Factor} | Config]
+                    end
             catch
                 throw:{skip, _} = SKIP ->
                     SKIP
@@ -772,7 +795,7 @@ maybe_skip(_HostInfo) ->
         end,
     DarwinVersionVerify =
         fun(V) when (V > {9, 8, 0}) ->
-                %% This version is OK: No Skip
+                %% These version(s) are OK: No Skip
                 false;
            (_V) ->
                 %% This version is *not* ok: Skip
@@ -934,7 +957,7 @@ skip(Reason, Module, Line) ->
     exit({skip, String}).
     
 
-%% This function prints various host info, which might be usefull
+%% This function prints various host info, which might be useful
 %% when analyzing the test suite (results).
 %% It also returns a "factor" that can be used when deciding 
 %% the load for some test cases. Such as run time or number of
@@ -970,63 +993,94 @@ analyze_and_print_host_info() ->
             analyze_and_print_win_host_info(Version);
         _ ->
             io:format("OS Family: ~p"
-                      "~n   OS Type:               ~p"
-                      "~n   Version:               ~p"
-                      "~n   Num Online Schedulers: ~s"
-                      "~n", [OsFam, OsName, Version, str_num_schedulers()]),
+                      "~n   OS Type:                 ~p"
+                      "~n   Version:                 ~p"
+                      "~n   Num Online Schedulers:   ~s"
+                      "~n   TS Extra Platform Label: ~s"
+                      "~n", [OsFam, OsName, Version, str_num_schedulers(),
+                             ts_extra_flatform_label()]),
             {num_schedulers_to_factor(), []}
     end.
 
+ts_extra_flatform_label() ->
+    case os:getenv("TS_EXTRA_PLATFORM_LABEL") of
+        false -> "-";
+        Val   -> Val
+    end.
+
+simplify_label(Label) ->
+    case string:to_lower(Label) of
+        "docker" ++ _ ->
+            docker;
+        _ ->
+            host
+    end.
+
+
 linux_which_distro(Version) ->
+    Label = ts_extra_flatform_label(),
     case file:read_file_info("/etc/issue") of
         {ok, _} ->
             case [string:trim(S) ||
                      S <- string:tokens(os:cmd("cat /etc/issue"), [$\n])] of
                 [DistroStr|_] ->
                     io:format("Linux: ~s"
-                              "~n   ~s"
+                              "~n   Distro:                  ~s"
+                              "~n   TS Extra Platform Label: ~s"
                               "~n",
-                              [Version, DistroStr]),
-                    case DistroStr of
-                        "Wind River Linux" ++ _ ->
-                            wind_river;
-                        "MontaVista" ++ _ ->
-                            montavista;
-                        "Yellow Dog" ++ _ ->
-                            yellow_dog;
-                        _ ->
-                            other
-                    end;
+                              [Version, DistroStr, Label]),
+                    {case DistroStr of
+                         "Wind River Linux" ++ _ ->
+                             wind_river;
+                         "MontaVista" ++ _ ->
+                             montavista;
+                         "Yellow Dog" ++ _ ->
+                             yellow_dog;
+                         "Debian" ++ _ ->
+                             debian;
+                         _ ->
+                             other
+                     end,
+                     simplify_label(Label)};
                 X ->
                     io:format("Linux: ~s"
-                              "~n   ~p"
+                              "~n   Distro:                  ~p"
+                              "~n   TS Extra Platform Label: ~s"
                               "~n",
-                              [Version, X]),
-                    other
+                              [Version, X, Label]),
+                    {other, simplify_label(Label)}
             end;
         _ ->
             io:format("Linux: ~s"
-                      "~n", [Version]),
-            other
+                      "~n   TS Extra Platform Label: ~s"
+                      "~n", [Version, Label]),
+            {other, simplify_label(Label)}
     end.
-    
+
+label2factor(docker) ->
+    4;
+label2factor(host) ->
+    0.
+
 analyze_and_print_linux_host_info(Version) ->
-    Distro =
+    {Distro, Label} =
         case file:read_file_info("/etc/issue") of
             {ok, _} ->
                 linux_which_distro(Version);
             _ ->
+                L = ts_extra_flatform_label(),
                 io:format("Linux: ~s"
-                          "~n", [Version]),
-                other
+                          "~n   TS Extra Platform Label: ~s"
+                          "~n", [Version, L]),
+                {other, simplify_label(L)}
         end,
     Factor =
         case (catch linux_which_cpuinfo(Distro)) of
             {ok, {CPU, BogoMIPS}} ->
                 io:format("CPU: "
-                          "~n   Model:                 ~s"
-                          "~n   BogoMIPS:              ~w"
-                          "~n   Num Online Schedulers: ~s"
+                          "~n   Model:                   ~s"
+                          "~n   BogoMIPS:                ~w"
+                          "~n   Num Online Schedulers:   ~s"
                           "~n", [CPU, BogoMIPS, str_num_schedulers()]),
                 if
                     (BogoMIPS > 20000) ->
@@ -1044,8 +1098,8 @@ analyze_and_print_linux_host_info(Version) ->
                 end;
             {ok, CPU} ->
                 io:format("CPU: "
-                          "~n   Model:                 ~s"
-                          "~n   Num Online Schedulers: ~s"
+                          "~n   Model:                   ~s"
+                          "~n   Num Online Schedulers:   ~s"
                           "~n", [CPU, str_num_schedulers()]),
                 NumChed = erlang:system_info(schedulers),
                 if
@@ -1057,19 +1111,24 @@ analyze_and_print_linux_host_info(Version) ->
             _ ->
                 5
         end,
+    AddLabelFactor = label2factor(Label),
     %% Check if we need to adjust the factor because of the memory
-    try linux_which_meminfo() of
-        AddFactor ->
-            io:format("TS Scale Factor: ~w (~w + ~w)~n",
-                      [timetrap_scale_factor(), Factor, AddFactor]),
-            {Factor + AddFactor, []}
-    catch
-        _:_:_ ->
-            io:format("TS Scale Factor: ~w (~w)~n",
-                      [timetrap_scale_factor(), Factor]),
-            {Factor, []}
-    end.
-
+    AddMemFactor = try linux_which_meminfo()
+                   catch _:_:_ -> 0
+                   end,
+    TSScaleFactor = case timetrap_scale_factor() of
+                        N when is_integer(N) andalso (N > 0) ->
+                            N - 1;
+                        _ ->
+                            0
+                    end,
+    io:format("Factor calc:"
+              "~n      Base Factor:     ~w"
+              "~n      Label Factor:    ~w"
+              "~n      Mem Factor:      ~w"
+              "~n      TS Scale Factor: ~w"
+             "~n", [Factor, AddLabelFactor, AddMemFactor, TSScaleFactor]),
+    {Factor + AddLabelFactor + AddMemFactor + TSScaleFactor, [{label, Label}]}.
 
 
 linux_cpuinfo_lookup(Key) when is_list(Key) ->
@@ -1142,19 +1201,19 @@ bogomips_to_int(BM) ->
             end
     end.
 
-linux_cpuinfo_model() ->
-    case linux_cpuinfo_lookup("model") of
-        [M|_] ->
-            M;
-        _X ->
-            "-"
-    end.
-
 linux_cpuinfo_platform() ->
     case linux_cpuinfo_lookup("platform") of
         [P] ->
             P;
         _ ->
+            "-"
+    end.
+
+linux_cpuinfo_model() ->
+    case linux_cpuinfo_lookup("model") of
+        [M|_] ->
+            M;
+        _X ->
             "-"
     end.
 
@@ -1239,6 +1298,29 @@ linux_which_cpuinfo(wind_river) ->
                 BMips ->
                     {ok, {CPU, BMips}}
             end;
+        BMips ->
+            {ok, {CPU, BMips}}
+    end;
+
+%% Check for x86 (Intel, AMD, Raspberry (ARM))
+linux_which_cpuinfo(debian) ->
+    CPU =
+        case linux_cpuinfo_model() of
+            "-" ->
+                %% ARM (at least some distros...)
+                case linux_cpuinfo_processor() of
+                    "-" ->
+                        %% Ok, we give up
+                        throw(noinfo);
+                    Proc ->
+                        Proc
+                end;
+            ModelName ->
+                ModelName
+        end,
+    case linux_cpuinfo_bogomips() of
+        "-" ->
+            {ok, CPU};
         BMips ->
             {ok, {CPU, BMips}}
     end;
@@ -1365,39 +1447,71 @@ analyze_and_print_openbsd_host_info(Version) ->
             io:format("TS Scale Factor: ~w~n", [timetrap_scale_factor()]),
             CPUFactor =
                 if
-                    (CPUSpeed =:= -1) ->
-                        1;
+                    (CPUSpeed >= 3000) ->
+                        if
+                            (NCPU >= 8) ->
+                                1;
+                            (NCPU >= 6) ->
+                                2;
+                            (NCPU >= 4) ->
+                                3;
+                            (NCPU >= 2) ->
+                                4;
+                            true ->
+                                10
+                        end;
                     (CPUSpeed >= 2000) ->
                         if
-                            (NCPU >= 4) ->
-                                1;
-                            (NCPU >= 2) ->
+                            (NCPU >= 8) ->
                                 2;
+                            (NCPU >= 6) ->
+                                3;
+                            (NCPU >= 4) ->
+                                4;
+                            (NCPU >= 2) ->
+                                5;
                             true ->
-                                3
+                                12
+                        end;
+                    (CPUSpeed >= 1000) ->
+                        if
+                            (NCPU >= 8) ->
+                                3;
+                            (NCPU >= 6) ->
+                                4;
+                            (NCPU >= 4) ->
+                                5;
+                            (NCPU >= 2) ->
+                                6;
+                            true ->
+                                14
                         end;
                     true ->
                         if
+                            (NCPU >= 8) ->
+                                4;
+                            (NCPU >= 6) ->
+                                6;
                             (NCPU >= 4) ->
-                                2;
+                                8;
                             (NCPU >= 2) ->
-                                3;
+                                10;
                             true ->
-                                4
+                                20
                         end
                 end,
             MemAddFactor =
                 if
-                    (Memory =:= -1) ->
+                    (Memory >= 16777216) ->
                         0;
                     (Memory >= 8388608) ->
-                        0;
-                    (Memory >= 4194304) ->
                         1;
+                    (Memory >= 4194304) ->
+                        3;
                     (Memory >= 2097152) ->
-                        2;
+                        5;
                     true ->
-                        3
+                        10
                 end,
             {CPUFactor + MemAddFactor, []}
         end
@@ -2375,15 +2489,6 @@ nodes_on(Host) when is_list(Host) ->
     net_adm:world_list([list_to_atom(Host)]).
 
 
-start_node(Name, Args) ->
-    Opts = [{cleanup, false}, {args, Args}],
-    test_server:start_node(Name, slave, Opts).
-
-
-stop_node(Node) ->
-    test_server:stop_node(Node).
-
-
 %% ----------------------------------------------------------------
 %% Application and Crypto utility functions
 %% 
@@ -2415,7 +2520,10 @@ crypto_start() ->
     end.
  
 crypto_support() ->
-    crypto_support([md5, sha], []).
+    crypto_support([md5, sha, sha224, sha256, sha384, sha512,
+                    des_cbc,
+                    aes_cfb128, aes_128_cfb128, aes_192_cfb128, aes_256_cfb128],
+                   []).
  
 crypto_support([], []) ->
     yes;

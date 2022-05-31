@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1997-2017. All Rights Reserved.
+%% Copyright Ericsson AB 1997-2022. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -38,6 +38,8 @@
 -deprecated({integer_to_hexlist, 1, "use erlang:integer_to_list/2 with base 16 instead"}).
 -deprecated({strip, 1, "use string:trim/1 instead"}).
 -deprecated({suffix, 1, "use filename:extension/1 and string:trim/2 instead"}).
+-deprecated({decode_hex, 1, "use uri_string:unquote function instead"}).
+-deprecated({encode_hex, 1, "use uri_string:quote function instead"}).
 
 -compile({nowarn_deprecated_function, [{http_uri, encode, 1}]}).
 -compile({nowarn_deprecated_function, [{http_uri, decode, 1}]}).
@@ -396,10 +398,11 @@ month(12) -> "Dec".
 %% decode_hex
 
 decode_hex(URI) ->
-    http_uri:decode(URI).
+    uri_string:unquote(URI).
 
 encode_hex(URI) ->
-    http_uri:encode(URI).
+    SafeChars = "!$()*", %% characters not encoded by deprecated http_uri:encode/1
+    uri_string:quote(URI, SafeChars).
 
 %% flatlength
 flatlength(List) ->
@@ -427,27 +430,12 @@ split_path(URI) ->
           query := Query} ->
             {Path, Query};
         #{path := Path} ->            
-            split_path(Path, [])
+            {Path, []}
     end.
 
 add_hashmark(Query, Fragment) ->
     Query ++ "#" ++ Fragment.
    
-split_path([],SoFar) ->
-    {lists:reverse(SoFar),[]};
-split_path([$/|Rest],SoFar) ->
-    Path=lists:reverse(SoFar),
-    case file:read_file_info(Path) of
-	{ok,FileInfo} when FileInfo#file_info.type =:= regular ->
-	    {Path,[$/|Rest]};
-	{ok, _FileInfo} ->
-	    split_path(Rest,[$/|SoFar]);
-	{error, _Reason} ->
-	    split_path(Rest,[$/|SoFar])
-    end;
-split_path([C|Rest],SoFar) ->
-    split_path(Rest,[C|SoFar]).
-
 %% split_script_path, URI has been decoded once when validate
 %% and should only be decoded once(RFC3986, 2.4).
 
@@ -460,10 +448,9 @@ split_script_path(URI) ->
             not_a_script;
         #{path := Path,
           query := Query} ->
-            {Script, PathInfo} = split_path(Path, []),
-            {Script, {PathInfo, Query}};
+            {Path, {[], Query}};
         #{path := Path} ->            
-            split_path(Path, [])
+            {Path, []}
     end.
 
 %% suffix
@@ -564,7 +551,7 @@ search_and_replace(S,A,B) ->
 
 
 %%----------------------------------------------------------------------
-%% Converts  a string that constists of 0-9,A-F,a-f to a 
+%% Converts  a string that consists of 0-9,A-F,a-f to a 
 %% integer
 %%----------------------------------------------------------------------
 

@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 2016-2018. All Rights Reserved.
+ * Copyright Ericsson AB 2016-2021. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -40,8 +40,12 @@ typedef struct {
     struct {
         ErtsCodeInfo info;
 #ifdef BEAMASM
-        // Code used by tracing/nif load
+        /* Code used by tracing/nif load. */
+#  ifdef __aarch64__
+        BeamInstr trace[2];
+#  else
         BeamInstr trace[1];
+#  endif
 #endif
         BeamInstr call_op; /* call_bif || call_nif */
         BeamInstr dfunc;
@@ -244,6 +248,8 @@ erts_flush_dirty_shadow_proc(Process *sproc)
     }
 
     c_p->off_heap.overhead += sproc->off_heap.overhead;
+
+    ASSERT(sproc->wrt_bins == NULL);
 }
 
 ERTS_GLB_INLINE void
@@ -268,6 +274,7 @@ erts_cache_dirty_shadow_proc(Process *sproc)
     sproc->mbuf = NULL;
     sproc->mbuf_sz = 0;
     ERTS_INIT_OFF_HEAP(&sproc->off_heap);
+    sproc->wrt_bins = NULL;
 }
 
 ERTS_GLB_INLINE Process *

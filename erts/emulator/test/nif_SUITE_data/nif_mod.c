@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 2009-2020. All Rights Reserved.
+ * Copyright Ericsson AB 2009-2021. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -391,6 +391,13 @@ static ErlNifFunc nif_funcs[] =
 #ifdef HAVE_ENIF_MONITOR_PROCESS
     {"monitor_process", 3, monitor_process},
 #endif
+#if NIF_LIB_VER == 4
+    {"non_existing", 2, get_resource},      /* error: not found */
+#endif
+#if NIF_LIB_VER == 5
+    {"make_new_resource", 2, get_resource}, /* error: duplicate */
+#endif
+
     /* Keep lib_version_check last to maximize the loading "patch distance"
        between it and lib_version */
     {"lib_version_check", 0, lib_version}

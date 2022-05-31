@@ -4,7 +4,7 @@
 <chapter>
   <header>
     <copyright>
-      <year>2004</year><year>2018</year>
+      <year>2004</year><year>2021</year>
       <holder>Ericsson AB. All Rights Reserved.</holder>
     </copyright>
     <legalnotice>
@@ -31,7 +31,102 @@
   </header>
   <p>This document describes the changes made to the <em>erl_docgen</em> application.</p>
 
-  <section><title>Erl_Docgen 1.1.2</title>
+  <section><title>Erl_Docgen 1.3</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Fix types that are not derived from code to display the
+	    correct information in EEP-48 style documentation chunks.</p>
+          <p>
+	    Own Id: OTP-18084 Aux Id: PR-5948 </p>
+        </item>
+      </list>
+    </section>
+
+
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+          <p>
+	    Any exported, but private function or module in
+	    Erlang/OTP now generate an EEP-48 style documentation
+	    entry with the content set to hidden.</p>
+          <p>
+	    Before this change, exported but private functions and
+	    modules did not have any entry at all.</p>
+          <p>
+	    Own Id: OTP-17669 Aux Id: PR-5226 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Erl_Docgen 1.2.1</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Fix css for large tables and images on small screens</p>
+          <p>
+	    Own Id: OTP-17852</p>
+        </item>
+        <item>
+          <p>
+	    Fix bug with codeinclude tag that caused it to not
+	    include the code if used in a correct, but unexpected
+	    way.</p>
+          <p>
+	    Own Id: OTP-17907 Aux Id: GH-5662 PR-5666 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Erl_Docgen 1.2</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Fix <c>codeinclude</c> tag to correctly respect the
+	    <c>type</c> attribute.</p>
+          <p>
+	    Own Id: OTP-17754 Aux Id: PR-5365 </p>
+        </item>
+      </list>
+    </section>
+
+
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+          <p>
+	    The HTML documentation has been updated to collapse
+	    better on small screens.</p>
+          <p>
+	    Own Id: OTP-17687 Aux Id: PR-5197 </p>
+        </item>
+        <item>
+          <p>
+	    All predefined types have been added to the <c>erlang</c>
+	    module together with documentation.</p>
+          <p>
+	    Any reference to a predefined type now links to that
+	    documentation so that the user can view it.</p>
+          <p>
+	    Own Id: OTP-17689 Aux Id: PR-5292 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Erl_Docgen 1.1.2</title>
 
     <section><title>Fixed Bugs and Malfunctions</title>
       <list>

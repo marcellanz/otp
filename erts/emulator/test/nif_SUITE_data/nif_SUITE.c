@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 2009-2020. All Rights Reserved.
+ * Copyright Ericsson AB 2009-2021. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -2074,7 +2074,7 @@ static ERL_NIF_TERM call_nif_nan_or_inf(ErlNifEnv* env, int argc, const ERL_NIF_
     assert(enif_is_exception(env, res));
     assert(enif_has_pending_exception(env, NULL));
     if (strcmp(arg, "tuple") == 0) {
-        return enif_make_tuple2(env, argv[0], res);
+        return enif_make_tuple2(env, argv[0], argv[0]);
     } else {
         return res;
     }
@@ -3685,6 +3685,22 @@ static ERL_NIF_TERM term_type_nif(ErlNifEnv* env, int argc, const ERL_NIF_TERM a
     }
 }
 
+static ERL_NIF_TERM msa_find_y_nif(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
+{
+    ErlNifBinary bin;
+    const char ok_str[] = "nif says ok";
+    ERL_NIF_TERM ok_bin;
+
+    /* just verify that arg is a binary (and not a match state) */
+    if (!enif_inspect_binary(env, argv[0], &bin) ||
+        !enif_is_binary(env, argv[0])) {
+        return enif_make_string(env, "nif says arg not a binary", ERL_NIF_LATIN1);
+    }
+    memcpy(enif_make_new_binary(env, strlen(ok_str), &ok_bin),
+           ok_str, strlen(ok_str));
+    return ok_bin;
+}
+
 static ErlNifFunc nif_funcs[] =
 {
     {"lib_version", 0, lib_version},
@@ -3794,7 +3810,8 @@ static ErlNifFunc nif_funcs[] =
     {"set_pid_undefined_nif", 0, set_pid_undefined_nif},
     {"is_pid_undefined_nif", 1, is_pid_undefined_nif},
     {"compare_pids_nif", 2, compare_pids_nif},
-    {"term_type_nif", 1, term_type_nif}
+    {"term_type_nif", 1, term_type_nif},
+    {"msa_find_y_nif", 1, msa_find_y_nif}
 
 };
 

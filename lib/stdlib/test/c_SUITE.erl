@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 1998-2018. All Rights Reserved.
+%% Copyright Ericsson AB 1998-2021. All Rights Reserved.
 %% 
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -180,7 +180,7 @@ ls(Config) when is_list(Config) ->
     ok = c:ls(File),
     ok = c:ls([[[[File]]]]),
     ok = c:ls("no_such_file"),
-    ok = c:ls(list_to_atom(code:which(c))),
+    ok = c:ls(code:where_is_file("c.beam")),
     ok.
 
 %% Check that c:memory/[0,1] returns consistent results.

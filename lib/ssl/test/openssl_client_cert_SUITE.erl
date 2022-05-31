@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2019-2019. All Rights Reserved.
+%% Copyright Ericsson AB 2019-2022. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -44,12 +44,10 @@
          client_auth_empty_cert_accepted/1,
          client_auth_empty_cert_rejected/0,
          client_auth_empty_cert_rejected/1,
-         client_auth_partial_chain/0,
-         client_auth_partial_chain/1,
-         client_auth_allow_partial_chain/0,
-         client_auth_allow_partial_chain/1,
-         client_auth_do_not_allow_partial_chain/0,
-         client_auth_do_not_allow_partial_chain/1,
+         client_auth_use_partial_chain/0,
+         client_auth_use_partial_chain/1,
+         client_auth_do_not_use_partial_chain/0,
+         client_auth_do_not_use_partial_chain/1,
          client_auth_partial_chain_fun_fail/0,
          client_auth_partial_chain_fun_fail/1,
          missing_root_cert_no_auth/0,
@@ -82,10 +80,10 @@ groups() ->
     [
      {openssl_client, [], protocol_groups()},
      {'tlsv1.3', [], tls_1_3_protocol_groups()},
-     {'tlsv1.2', [], pre_tls_1_3_protocol_groups() ++ [{group, rsa_pss_rsae}, {group, rsa_pss_pss}]},
+     {'tlsv1.2', [], pre_tls_1_3_protocol_groups() ++ [{group, ecdsa}, {group, rsa_pss_rsae}, {group, rsa_pss_pss}]},
      {'tlsv1.1', [], pre_tls_1_3_protocol_groups()},
      {'tlsv1', [], pre_tls_1_3_protocol_groups()},
-     {'dtlsv1.2', [], pre_tls_1_3_protocol_groups()},
+     {'dtlsv1.2', [], pre_tls_1_3_protocol_groups() ++ [{group, ecdsa}]},
      {'dtlsv1', [], pre_tls_1_3_protocol_groups()},
      {rsa, [], all_version_tests()},
      {ecdsa, [], all_version_tests()},
@@ -119,7 +117,6 @@ protocol_groups() ->
 
 pre_tls_1_3_protocol_groups() ->
     [{group, rsa},
-     {group, ecdsa},
      {group, dsa}].
 
 tls_1_3_protocol_groups() ->
@@ -145,9 +142,8 @@ all_version_tests() ->
      auth,
      client_auth_empty_cert_accepted,
      client_auth_empty_cert_rejected,
-     client_auth_partial_chain,
-     client_auth_allow_partial_chain,
-     client_auth_do_not_allow_partial_chain,
+     client_auth_use_partial_chain,
+     client_auth_do_not_use_partial_chain,
      client_auth_partial_chain_fun_fail,
      missing_root_cert_no_auth
     ].
@@ -180,7 +176,7 @@ init_per_group(Group, Config0) when Group == rsa;
     Config = ssl_test_lib:make_rsa_cert(Config0),
     COpts = proplists:get_value(client_rsa_opts, Config),
     SOpts = proplists:get_value(server_rsa_opts, Config),
-    %% Make sure _rsa* suite is choosen by ssl_test_lib:start_server
+    %% Make sure _rsa* suite is chosen by ssl_test_lib:start_server
     Version = ssl_test_lib:protocol_version(Config),
     Ciphers = ssl_cert_tests:test_ciphers(fun(dhe_rsa) -> 
                                                   true;
@@ -236,7 +232,7 @@ init_per_group(Group, Config0) when Group == ecdsa;
             Config = ssl_test_lib:make_ecdsa_cert(Config0),
             COpts = proplists:get_value(client_ecdsa_opts, Config),
             SOpts = proplists:get_value(server_ecdsa_opts, Config),
-            %% Make sure ecdh* suite is choosen by ssl_test_lib:start_server
+            %% Make sure ecdh* suite is chosen by ssl_test_lib:start_server
             Version = ssl_test_lib:protocol_version(Config),
             Ciphers =  ssl_cert_tests:test_ciphers(fun(ecdh_ecdsa) -> 
                                                            true;
@@ -297,7 +293,7 @@ init_per_group(Group, Config0) when Group == dsa ->
             Config = ssl_test_lib:make_dsa_cert(Config0),    
             COpts = proplists:get_value(client_dsa_opts, Config),
             SOpts = proplists:get_value(server_dsa_opts, Config),
-            %% Make sure dhe_dss* suite is choosen by ssl_test_lib:start_server
+            %% Make sure dhe_dss* suite is chosen by ssl_test_lib:start_server
             Version = ssl_test_lib:protocol_version(Config),
             Ciphers =  ssl_cert_tests:test_ciphers(fun(dh_dss) -> 
                                                            true;
@@ -375,27 +371,87 @@ client_auth_empty_cert_rejected() ->
 client_auth_empty_cert_rejected(Config) ->
     ssl_cert_tests:client_auth_empty_cert_rejected(Config).
 %%--------------------------------------------------------------------
-client_auth_partial_chain() ->
-    ssl_cert_tests:client_auth_partial_chain().
-client_auth_partial_chain(Config) when is_list(Config) ->
-    ssl_cert_tests:client_auth_partial_chain(Config).
+%%  Have to use partial chain functionality on side running Erlang (we are not testing OpenSSL features)
+client_auth_use_partial_chain() ->
+    [{doc, "Server does not trust an intermediat CA and fails the connetion as ROOT has expired"}].
+client_auth_use_partial_chain(Config) when is_list(Config) ->
+    Prop = proplists:get_value(tc_group_properties, Config),
+    DefaultCertConf = ssl_test_lib:default_ecc_cert_chain_conf(proplists:get_value(name, Prop)),
+    {Year, Month, Day} = date(),
+    #{client_config := ClientOpts0,
+      server_config := ServerOpts0} = ssl_test_lib:make_cert_chains_pem(proplists:get_value(cert_key_alg, Config),
+                                                                        [{client_chain,
+                                                                          [[{validity, {{Year-2, Month, Day},
+                                                                                        {Year-1, Month, Day}}}],
+                                                                           [],
+                                                                           []
+                                                                          ]},
+                                                                         {server_chain, DefaultCertConf}],
+                                                                        Config, "use_partial_chain"),
+    ClientOpts = ssl_test_lib:ssl_options(extra_client, ClientOpts0, Config),
+    CaCertsFile = proplists:get_value(cacertfile, ClientOpts),
+    ClientCACerts = [DerCA  ||  {'Certificate', DerCA, _} <- ssl_test_lib:pem_to_der(CaCertsFile)],
+    [_, IntermidiateCA, _] = ClientCACerts,
+    PartialChain =  fun(CertChain) ->
+			    case lists:member(IntermidiateCA, CertChain) of
+				true ->
+				    {trusted_ca, IntermidiateCA};
+				false ->
+				    unknown_ca
+			    end
+		    end,
+    ServerOpts = [{verify, verify_peer}, {fail_if_no_peer_cert, true}, {partial_chain, PartialChain} |
+                  ssl_test_lib:ssl_options(extra_server, ServerOpts0, Config)],
+    ssl_test_lib:basic_test(ClientOpts, ServerOpts, Config).
+%%--------------------------------------------------------------------
+%%  Have to use partial chain functionality on side running Erlang (we are not testing OpenSSL features)
+client_auth_do_not_use_partial_chain() ->
+   ssl_cert_tests:client_auth_do_not_use_partial_chain().
+client_auth_do_not_use_partial_chain(Config) when is_list(Config) ->
+    Prop = proplists:get_value(tc_group_properties, Config),
+    DefaultCertConf = ssl_test_lib:default_ecc_cert_chain_conf(proplists:get_value(name, Prop)),
+    {Year, Month, Day} = date(),
+    #{client_config := ClientOpts0,
+      server_config := ServerOpts0} = ssl_test_lib:make_cert_chains_pem(proplists:get_value(cert_key_alg, Config),
+                                                                        [{client_chain,
+                                                                          [[{validity, {{Year-2, Month, Day},
+                                                                                        {Year-1, Month, Day}}}],
+                                                                           [],
+                                                                           []
+                                                                          ]},
+                                                                         {server_chain, DefaultCertConf}], Config, "do_not_use_partial_chain"),
+    PartialChain =  fun(_CertChain) ->
+			    unknown_ca
+		    end,
+    ClientOpts = ssl_test_lib:ssl_options(extra_client, ClientOpts0, Config),
+    ServerOpts = [{verify, verify_peer}, {fail_if_no_peer_cert, true}, {partial_chain, PartialChain} |
+                  ssl_test_lib:ssl_options(extra_server, ServerOpts0, Config)],
+    ssl_test_lib:basic_alert(ClientOpts, ServerOpts, Config, certificate_expired).
 
 %%--------------------------------------------------------------------
-client_auth_allow_partial_chain() ->
-    ssl_cert_tests:client_auth_allow_partial_chain().
-client_auth_allow_partial_chain(Config) when is_list(Config) ->
-    ssl_cert_tests:client_auth_allow_partial_chain(Config).
-%%--------------------------------------------------------------------
-client_auth_do_not_allow_partial_chain() ->
-   ssl_cert_tests:client_auth_do_not_allow_partial_chain().
-client_auth_do_not_allow_partial_chain(Config) when is_list(Config) ->
-    ssl_cert_tests:client_auth_do_not_allow_partial_chain(Config).
-
-%%--------------------------------------------------------------------
+%%  Have to use partial chain functionality on side running Erlang (we are not testing OpenSSL features)
 client_auth_partial_chain_fun_fail() ->
    ssl_cert_tests:client_auth_partial_chain_fun_fail().
 client_auth_partial_chain_fun_fail(Config) when is_list(Config) ->
-    ssl_cert_tests:client_auth_partial_chain_fun_fail(Config).
+ Prop = proplists:get_value(tc_group_properties, Config),
+    DefaultCertConf = ssl_test_lib:default_ecc_cert_chain_conf(proplists:get_value(name, Prop)),
+    {Year, Month, Day} = date(),
+    #{client_config := ClientOpts0,
+      server_config := ServerOpts0} = ssl_test_lib:make_cert_chains_pem(proplists:get_value(cert_key_alg, Config),
+                                                                        [{client_chain,
+                                                                          [[{validity, {{Year-2, Month, Day},
+                                                                                        {Year-1, Month, Day}}}],
+                                                                           [],
+                                                                           []
+                                                                          ]},
+                                                                         {server_chain, DefaultCertConf}], Config, "do_not_use_partial_chain"),
+    PartialChain = fun(_CertChain) ->
+                           error(crash_on_purpose)
+                   end,
+    ClientOpts = ssl_test_lib:ssl_options(extra_client, ClientOpts0, Config),
+    ServerOpts = [{verify, verify_peer}, {fail_if_no_peer_cert, true}, {partial_chain, PartialChain} |
+                  ssl_test_lib:ssl_options(extra_server, ServerOpts0, Config)],
+    ssl_test_lib:basic_alert(ClientOpts, ServerOpts, Config, certificate_expired).
 
 %%--------------------------------------------------------------------
 missing_root_cert_no_auth() ->

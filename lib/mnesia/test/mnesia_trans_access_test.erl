@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1996-2018. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2021. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -722,7 +722,7 @@ nested_transactions(Config, Child, Father) ->
 		     {[{Tab, father, not_updated}], [{Tab, child, not_updated}]}
 	end,
 
-    %% Syncronize things!!
+    %% Synchronize things!!
     ?match({atomic, ok}, mnesia:sync_transaction(fun() -> mnesia:write({Tab, sync, sync}) end)),
 
     ?match(ChildRes, rpc:call(Node1, mnesia, dirty_read, [{Tab, child}])),
@@ -1196,7 +1196,7 @@ index_delete_object(Config) when is_list(Config) ->
     ?verify_mnesia(Nodes, []).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%% Add and drop indecies
+%% Add and drop indices
 
 
 add_table_index_ram(suite) -> [];

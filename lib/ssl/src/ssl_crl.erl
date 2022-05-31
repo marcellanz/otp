@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2015-2017. All Rights Reserved.
+%% Copyright Ericsson AB 2015-2021. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -44,8 +44,8 @@ trusted_cert_and_path(CRL, issuer_not_found, CertPath, {Db, DbRef}) ->
 	{error, unknown_ca} ->
             Issuer = public_key:pkix_normalize_name(public_key:pkix_crl_issuer(CRL)),
             IsIssuerFun =
-                fun({_Key, #cert{otp=ErlCertCandidate}}, Acc) ->
-                        verify_crl_issuer(CRL, ErlCertCandidate, Issuer, Acc);
+                fun({_Key, CertCandidate}, Acc) ->
+                        verify_crl_issuer(CRL, CertCandidate, Issuer, Acc);
                    (_, Acc) ->
                         Acc
                 end,
@@ -63,8 +63,8 @@ trusted_cert_and_path(CRL, issuer_not_found, CertPath, {Db, DbRef}) ->
 search_certpath(CRL, CertPath, Db, DbRef) ->
     Issuer = public_key:pkix_normalize_name(public_key:pkix_crl_issuer(CRL)),
     IsIssuerFun =
-	fun(ErlCertCandidate, Acc) ->
-		verify_crl_issuer(CRL, ErlCertCandidate, Issuer, Acc)
+	fun(CertCandidate, Acc) ->
+		verify_crl_issuer(CRL, CertCandidate, Issuer, Acc)
 	end,
     case find_issuer(IsIssuerFun, certpath, CertPath) of
 	{ok, OtpCert} ->
@@ -105,13 +105,13 @@ find_issuer(IsIssuerFun, Db, _) ->
             Result
     end.
 
-verify_crl_issuer(CRL, #cert{otp = ErlCertCandidate}, Issuer, NotIssuer) ->
-    TBSCert =  ErlCertCandidate#'OTPCertificate'.tbsCertificate,
+verify_crl_issuer(CRL, #cert{otp = OTPCertCandidate}, Issuer, NotIssuer) ->
+    TBSCert = OTPCertCandidate#'OTPCertificate'.tbsCertificate,
     case public_key:pkix_normalize_name(TBSCert#'OTPTBSCertificate'.subject) of
 	Issuer ->
-	    case public_key:pkix_crl_verify(CRL, ErlCertCandidate) of
+	    case public_key:pkix_crl_verify(CRL, OTPCertCandidate) of
 		true ->
-		    throw({ok, ErlCertCandidate});
+		    throw({ok, OTPCertCandidate});
 		false ->
 		    NotIssuer
 	    end;

@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 1996-2018. All Rights Reserved.
+ * Copyright Ericsson AB 1996-2021. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -327,7 +327,7 @@ extern ErtsCodePtr beam_bif_export_trap;
 
 #define ERTS_BIF_PREP_TRAP(Export, Proc, Arity)                               \
     do {                                                                      \
-        (Proc)->i = (Export)->addresses[erts_active_code_ix()];               \
+        (Proc)->i = (Export)->dispatch.addresses[erts_active_code_ix()];      \
         (Proc)->arity = (Arity);                                              \
         (Proc)->freason = TRAP;                                               \
     } while(0);

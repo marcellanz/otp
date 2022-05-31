@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2007-2020. All Rights Reserved.
+%% Copyright Ericsson AB 2007-2022. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -43,9 +43,13 @@
          psk_suites_anon/1,
          srp_suites/1,
          srp_suites_anon/1,
+         srp_exclusive/1,
 	 rc4_suites/1,
+         rc4_exclusive/1,
          des_suites/1,
+         des_exclusive/1,
          rsa_suites/1,
+         rsa_exclusive/1,
          prf/5,
 	 ecc_curves/1, 
          ecc_curves/2, 
@@ -731,7 +735,9 @@ srp_exclusive(1) ->
      ?TLS_SRP_SHA_DSS_WITH_AES_128_CBC_SHA,
      ?TLS_SRP_SHA_RSA_WITH_3DES_EDE_CBC_SHA,
      ?TLS_SRP_SHA_DSS_WITH_3DES_EDE_CBC_SHA
-    ].
+    ];
+srp_exclusive(_) ->
+    [].
 
 %%--------------------------------------------------------------------
 -spec srp_suites_anon(tls_record:tls_version()) -> [ssl_cipher_format:cipher_suite()].
@@ -760,15 +766,17 @@ srp_exclusive_anon(1) ->
 %% belonged to the user configured only category.
 %%--------------------------------------------------------------------
 rc4_suites({3, _}) ->
-    exclusive_rc4(1).
+    rc4_exclusive(1).
 
-exclusive_rc4(1) ->
+rc4_exclusive(1) ->
     [?TLS_ECDHE_ECDSA_WITH_RC4_128_SHA,
      ?TLS_ECDHE_RSA_WITH_RC4_128_SHA,
      ?TLS_ECDH_ECDSA_WITH_RC4_128_SHA,
      ?TLS_ECDH_RSA_WITH_RC4_128_SHA,
      ?TLS_RSA_WITH_RC4_128_SHA,
-     ?TLS_RSA_WITH_RC4_128_MD5].
+     ?TLS_RSA_WITH_RC4_128_MD5];
+rc4_exclusive(_) ->
+    [].
 
 %%--------------------------------------------------------------------
 -spec des_suites(Version::ssl_record:ssl_version()) -> [ssl_cipher_format:cipher_suite()].
@@ -778,9 +786,9 @@ exclusive_rc4(1) ->
 %% Are not considered secure any more.
 %%--------------------------------------------------------------------
 des_suites({3, _}) ->
-    exclusive_des_suites(1).
+    des_exclusive(1).
 
-exclusive_des_suites(1)->
+des_exclusive(1)->
     [?TLS_ECDHE_ECDSA_WITH_3DES_EDE_CBC_SHA,
      ?TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA,
      ?TLS_DHE_RSA_WITH_3DES_EDE_CBC_SHA,
@@ -788,8 +796,9 @@ exclusive_des_suites(1)->
      ?TLS_ECDH_ECDSA_WITH_3DES_EDE_CBC_SHA,
      ?TLS_ECDH_RSA_WITH_3DES_EDE_CBC_SHA,
      ?TLS_DHE_RSA_WITH_DES_CBC_SHA,
-     ?TLS_RSA_WITH_DES_CBC_SHA].
-
+     ?TLS_RSA_WITH_DES_CBC_SHA];
+des_exclusive(_) ->
+    [].
 %%--------------------------------------------------------------------
 -spec rsa_suites(Version::ssl_record:ssl_version() | integer()) -> [ssl_cipher_format:cipher_suite()].
 %%
@@ -798,24 +807,26 @@ exclusive_des_suites(1)->
 %% Are not considered secure any more.
 %%--------------------------------------------------------------------
 rsa_suites({3, 3}) ->
-    rsa_suites_exclusive(3) -- [?TLS_RSA_WITH_3DES_EDE_CBC_SHA];
+    rsa_exclusive(3) ++ rsa_exclusive(1);
 rsa_suites({3, 2}) ->
-    rsa_suites_exclusive(1);
+    rsa_exclusive(1);
 rsa_suites({3, 1}) ->
-    rsa_suites_exclusive(1).
+    rsa_exclusive(1).
 
-rsa_suites_exclusive(3) ->
+rsa_exclusive(3) ->
     [
      ?TLS_RSA_WITH_AES_256_GCM_SHA384,
      ?TLS_RSA_WITH_AES_256_CBC_SHA256,
      ?TLS_RSA_WITH_AES_128_GCM_SHA256,
      ?TLS_RSA_WITH_AES_128_CBC_SHA256
     ];
-rsa_suites_exclusive(1) ->
+rsa_exclusive(1) ->
     [?TLS_RSA_WITH_AES_256_CBC_SHA,
      ?TLS_RSA_WITH_AES_128_CBC_SHA,
      ?TLS_RSA_WITH_3DES_EDE_CBC_SHA
-    ].
+    ];
+rsa_exclusive(_) ->
+    [].
 
 signature_algs({3, 4}, HashSigns) ->
     signature_algs({3, 3}, HashSigns);
@@ -858,24 +869,46 @@ signature_algs({3, 3}, HashSigns) ->
 default_signature_algs([{3, 4} = Version]) ->
     default_signature_schemes(Version) ++ legacy_signature_schemes(Version);
 default_signature_algs([{3, 4}, {3,3} | _]) ->
-    default_signature_schemes({3,4}) ++ default_signature_algs([{3,3}]);
+    default_signature_schemes({3,4}) ++ default_pre_1_3_signature_algs_only();
 default_signature_algs([{3, 3} = Version |_]) ->
-    Default = [%% SHA2
-	       {sha512, ecdsa},
-	       {sha512, rsa},
-	       {sha384, ecdsa},
-	       {sha384, rsa},
-	       {sha256, ecdsa},
-	       {sha256, rsa},
-	       {sha224, ecdsa},
-	       {sha224, rsa},
-	       %% SHA
-	       {sha, ecdsa},
-	       {sha, rsa},
-	       {sha, dsa}],
+    Default = [%% SHA2 ++ PSS
+               {sha512, ecdsa},
+               rsa_pss_pss_sha512,
+               rsa_pss_rsae_sha512,
+               {sha512, rsa},
+               {sha384, ecdsa},
+               rsa_pss_pss_sha384,
+               rsa_pss_rsae_sha384,
+               {sha384, rsa},
+               {sha256, ecdsa},
+               rsa_pss_pss_sha256,
+               rsa_pss_rsae_sha256,
+               {sha256, rsa},
+               {sha224, ecdsa},
+               {sha224, rsa},
+               %% SHA
+               {sha, ecdsa},
+               {sha, rsa},
+               {sha, dsa}],
     signature_algs(Version, Default);
 default_signature_algs(_) ->
     undefined.
+
+default_pre_1_3_signature_algs_only() ->
+    Default = [%% SHA2
+               {sha512, ecdsa},
+               {sha512, rsa},
+               {sha384, ecdsa},
+               {sha384, rsa},
+               {sha256, ecdsa},
+               {sha256, rsa},
+               {sha224, ecdsa},
+               {sha224, rsa},
+               %% SHA
+               {sha, ecdsa},
+               {sha, rsa},
+               {sha, dsa}],
+    signature_algs({3,3}, Default).
 
 
 signature_schemes(Version, [_|_] =SignatureSchemes) when is_tuple(Version)
@@ -946,7 +979,8 @@ signature_schemes(_, _) ->
     [].
 
 default_signature_schemes(Version) ->
-    Default = [
+    Default = [eddsa_ed25519,
+               eddsa_ed448,
                ecdsa_secp521r1_sha512,
                ecdsa_secp384r1_sha384,
                ecdsa_secp256r1_sha256,
@@ -955,9 +989,7 @@ default_signature_schemes(Version) ->
                rsa_pss_pss_sha256,
                rsa_pss_rsae_sha512,
                rsa_pss_rsae_sha384,
-               rsa_pss_rsae_sha256,
-               eddsa_ed25519,
-               eddsa_ed448
+               rsa_pss_rsae_sha256
               ],
     signature_schemes(Version, Default).
 

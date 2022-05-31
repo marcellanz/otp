@@ -1,7 +1,7 @@
 #
 # %CopyrightBegin%
 #
-# Copyright Ericsson AB 1996-2020. All Rights Reserved.
+# Copyright Ericsson AB 1996-2021. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -83,7 +83,6 @@ bif erlang:phash2/1
 bif erlang:phash2/2
 ubif erlang:hd/1
 bif erlang:integer_to_list/1
-bif erlang:is_alive/0
 ubif erlang:length/1
 bif erlang:link/1
 bif erlang:list_to_atom/1
@@ -199,6 +198,8 @@ bif erts_internal:ets_super_user/1
 
 bif erts_internal:spawn_request/4
 bif erts_internal:dist_spawn_request/4
+bif erts_internal:no_aux_work_threads/0
+
 bif erlang:spawn_request_abandon/1
 
 # Static native functions in erts_literal_area_collector

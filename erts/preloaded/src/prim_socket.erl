@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2018-2021. All Rights Reserved.
+%% Copyright Ericsson AB 2018-2022. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -43,11 +43,20 @@
     setopt/3, setopt_native/3,
     getopt/2, getopt_native/3,
     sockname/1, peername/1,
+    ioctl/2, ioctl/3, ioctl/4,
     cancel/3
    ]).
 
 -export([enc_sockaddr/1, p_get/1]).
 
+-nifs([nif_info/0, nif_info/1, nif_supports/0, nif_supports/1, nif_command/1,
+       nif_open/2, nif_open/4, nif_bind/2, nif_connect/1, nif_connect/3,
+       nif_listen/2, nif_accept/2, nif_send/4, nif_sendto/5, nif_sendmsg/5,
+       nif_sendfile/5, nif_sendfile/4, nif_sendfile/1, nif_recv/4,
+       nif_recvfrom/4, nif_recvmsg/5, nif_close/1, nif_shutdown/2,
+       nif_setopt/5, nif_getopt/3, nif_getopt/4, nif_sockname/1,
+       nif_peername/1, nif_ioctl/2, nif_ioctl/3, nif_ioctl/4, nif_cancel/3,
+       nif_finalize_close/1]).
 
 %% Also in socket
 -define(REGISTRY, socket_registry).
@@ -144,16 +153,20 @@ on_load(Extra) when is_map(Extra) ->
                         socket_debug => true,
                         debug_filename => enc_path(DebugFilename)}
           end,
-    ok = erlang:load_nif(atom_to_list(?MODULE), Extra_2),
-    %%
+    %% This will fail if the user has disabled esock support, making all NIFs
+    %% fall back to their Erlang implementation which throws `notsup`.
+    _ = erlang:load_nif(atom_to_list(?MODULE), Extra_2),
     init().
 
 init() ->
     PT =
-        put_supports_table(
-          protocols, fun (Protocols) -> protocols_table(Protocols) end),
-    _ = put_supports_table(
-          options, fun (Options) -> options_table(Options, PT) end),
+        put_supports_table(protocols,
+			   fun (Protocols) -> protocols_table(Protocols) end),
+    _ = put_supports_table(options,
+			   fun (Options) -> options_table(Options, PT) end),
+    _ = put_supports_table(ioctl_requests,
+			   fun (Requests) -> Requests end),
+    _ = put_supports_table(ioctl_flags, fun (Flags) -> Flags end),
     _ = put_supports_table(msg_flags, fun (Flags) -> Flags end),
     ok.
 
@@ -260,6 +273,13 @@ supports(protocols) ->
           (Num, _Names, Acc) when is_integer(Num) ->
               Acc
       end, [], p_get(protocols));
+supports(ioctl_requests) ->
+    maps:fold(
+      fun (Name, _Num, Acc) when is_atom(Name) ->
+              [{Name, true} | Acc];
+          (Num, _Names, Acc) when is_integer(Num) ->
+              Acc
+      end, [], p_get(ioctl_requests));
 supports(options) ->
     maps:fold(
       fun ({_Level,_Opt} = Option, Value, Acc) ->
@@ -270,6 +290,11 @@ supports(msg_flags) ->
       fun (Name, Num, Acc) ->
               [{Name, Num =/= 0} | Acc]
       end, [], p_get(msg_flags));
+supports(ioctl_flags) ->
+    maps:fold(
+      fun (Name, Num, Acc) ->
+              [{Name, Num =/= 0} | Acc]
+      end, [], p_get(ioctl_flags));
 supports(Key) ->
     nif_supports(Key).
 
@@ -305,6 +330,12 @@ is_supported_option(_Option, undefined) ->
 is_supported(Key1) ->
     get_is_supported(Key1, nif_supports()).
 
+is_supported(ioctl_requests = Tab, Name) when is_atom(Name) ->
+    p_get_is_supported(Tab, Name, fun (_) -> true end);
+is_supported(ioctl_requests, _Name) ->
+    false;
+is_supported(ioctl_flags = Tab, Flag) ->
+    p_get_is_supported(Tab, Flag, fun (Value) -> Value =/= 0 end);
 is_supported(protocols = Tab, Name) when is_atom(Name) ->
     p_get_is_supported(Tab, Name, fun (_) -> true end);
 is_supported(protocols, _Name) ->
@@ -770,7 +801,7 @@ getopt_result(Error, _Option) ->
 
 getopt_native(SockRef, Option, ValueSpec) ->
     NativeValue = 1,
-    case enc_sockopt(Option, NativeValue) of
+    try enc_sockopt(Option, NativeValue) of
         undefined ->
             {error, {invalid, {socket_option, Option}}};
         invalid ->
@@ -784,6 +815,8 @@ getopt_native(SockRef, Option, ValueSpec) ->
                     end;
                 Result -> Result
             end
+    catch throw : Reason ->
+            {error, Reason}
     end.
 
 %% ----------------------------------
@@ -794,14 +827,84 @@ sockname(Ref) ->
 peername(Ref) ->
     nif_peername(Ref).
 
+
+%% ----------------------------------
+
+ioctl(SRef, GReq) ->
+    case enc_ioctl_request(GReq) of
+	undefined ->
+	    {error, {invalid, {ioctl_request, GReq}}};
+	invalid ->
+	    {error, {invalid, {ioctl_request, GReq}}};
+	GReqNUM ->
+	    nif_ioctl(SRef, GReqNUM)
+    end.
+
+ioctl(SRef, GReq, Arg) ->
+    case enc_ioctl_request(GReq) of
+	undefined ->
+	    {error, {invalid, {ioctl_request, GReq}}};
+	invalid ->
+	    {error, {invalid, {ioctl_request, GReq}}};
+	GReqNUM ->
+	    nif_ioctl(SRef, GReqNUM, Arg)
+    end.
+
+
+ioctl(SRef, SReq, Arg1, Arg2) ->
+    case enc_ioctl_request(SReq) of
+	undefined ->
+	    {error, {invalid, {ioctl_request, SReq}}};
+	invalid ->
+	    {error, {invalid, {ioctl_request, SReq}}};
+	SReqNUM when (SReq =:= sifflags) ->
+	    nif_ioctl(SRef, SReqNUM, Arg1, enc_ioctl_flags(Arg2));
+	SReqNUM ->
+	    nif_ioctl(SRef, SReqNUM, Arg1, Arg2)
+    end.
+
+
 %% ----------------------------------
 
 cancel(SRef, Op, Ref) ->
     nif_cancel(SRef, Op, Ref).
 
+
 %% ===========================================================================
 %% Encode / decode
 %%
+
+enc_ioctl_request(GReq) when is_integer(GReq) ->
+    GReq;
+enc_ioctl_request(GReq) ->
+    case p_get(ioctl_requests) of
+	#{GReq := GReqNUM} ->
+	    GReqNUM;
+	#{} ->
+	    invalid
+    end.
+
+%% Flags: The flags that shall be set or/and reset
+%%        #{foo := boolean()}
+enc_ioctl_flags(Flags) ->
+    enc_ioctl_flags(Flags, p_get(ioctl_flags)).
+
+enc_ioctl_flags(Flags, Table) ->
+    F = fun(Flag, SetOrReset, FlagMap) when is_boolean(SetOrReset) ->
+		case Table of
+		    #{Flag := FlagValue} ->
+			FlagMap#{FlagValue => SetOrReset};
+		    #{} ->
+			invalid_ioctl_flag(Flag)
+		end;
+	   (Flag, BadSetOrReset, _) ->
+		invalid_ioctl_flag({Flag, BadSetOrReset})
+	end,
+    try maps:fold(F, #{}, Flags)
+    catch throw : Reason ->
+            {error, Reason}
+    end.
+
 
 %% These clauses should be deprecated
 enc_protocol({raw, ProtoNum}) when is_integer(ProtoNum) ->
@@ -996,7 +1099,27 @@ enc_sockopt({Level,Opt} = Option, _NativeValue)
     end;
 enc_sockopt(Option, _NativeValue) ->
     %% Neater than a function clause
-    erlang:error({invalid, {socket_option, Option}}).
+    invalid_socket_option(Option).
+
+
+%% ===========================================================================
+
+-spec invalid_socket_option(Opt :: term()) -> no_return().
+
+invalid_socket_option(Opt) ->
+    invalid({socket_option, Opt}).
+
+-spec invalid_ioctl_flag(Flag :: term()) -> no_return().
+
+invalid_ioctl_flag(Flag) ->
+    invalid({ioctl_flag, Flag}).
+
+-spec invalid(What :: term()) -> no_return().
+
+invalid(What) ->
+    throw({invalid, What}).
+
+
 
 %% ===========================================================================
 %% Persistent term functions
@@ -1009,57 +1132,63 @@ p_put(Name, Value) ->
 p_get(Name) ->
     persistent_term:get({?MODULE, Name}).
 
+
 %% ===========================================================================
 %% NIF functions
 %%
 
-nif_info() -> erlang:nif_error(undef).
-nif_info(_SockRef) -> erlang:nif_error(undef).
+nif_info() -> erlang:nif_error(notsup).
+nif_info(_SockRef) -> erlang:nif_error(notsup).
 
-nif_command(_Command) -> erlang:nif_error(undef).
+nif_command(_Command) -> erlang:nif_error(notsup).
 
-nif_supports() -> erlang:nif_error(undef).
-nif_supports(_Key) -> erlang:nif_error(undef).
+nif_supports() -> erlang:nif_error(notsup).
+nif_supports(_Key) -> erlang:nif_error(notsup).
 
-nif_open(_FD, _Opts) -> erlang:nif_error(undef).
-nif_open(_Domain, _Type, _Protocol, _Opts) -> erlang:nif_error(undef).
+nif_open(_FD, _Opts) -> erlang:nif_error(notsup).
+nif_open(_Domain, _Type, _Protocol, _Opts) -> erlang:nif_error(notsup).
 
-nif_bind(_SockRef, _SockAddr) -> erlang:nif_error(undef).
-nif_bind(_SockRef, _SockAddrs, _Action) -> erlang:nif_error(undef).
+nif_bind(_SockRef, _SockAddr) -> erlang:nif_error(notsup).
+nif_bind(_SockRef, _SockAddrs, _Action) -> erlang:nif_error(notsup).
 
-nif_connect(_SockRef) -> erlang:nif_error(undef).
-nif_connect(_SockRef, _ConnectRef, _SockAddr) -> erlang:nif_error(undef).
+nif_connect(_SockRef) -> erlang:nif_error(notsup).
+nif_connect(_SockRef, _ConnectRef, _SockAddr) -> erlang:nif_error(notsup).
 
-nif_listen(_SockRef, _Backlog) -> erlang:nif_error(undef).
+nif_listen(_SockRef, _Backlog) -> erlang:nif_error(notsup).
 
-nif_accept(_SockRef, _Ref) -> erlang:nif_error(undef).
+nif_accept(_SockRef, _Ref) -> erlang:nif_error(notsup).
 
-nif_send(_SockRef, _Bin, _Flags, _SendRef) -> erlang:nif_error(undef).
-nif_sendto(_SockRef, _Bin, _Dest, _Flags, _SendRef) -> erlang:nif_error(undef).
-nif_sendmsg(_SockRef, _Msg, _Flags, _SendRef, _IOV) -> erlang:nif_error(undef).
+nif_send(_SockRef, _Bin, _Flags, _SendRef) -> erlang:nif_error(notsup).
+nif_sendto(_SockRef, _Bin, _Dest, _Flags, _SendRef) -> erlang:nif_error(notsup).
+nif_sendmsg(_SockRef, _Msg, _Flags, _SendRef, _IOV) -> erlang:nif_error(notsup).
 
 nif_sendfile(_SockRef, _SendRef, _Offset, _Count, _InFileRef) ->
-    erlang:nif_error(undef).
+    erlang:nif_error(notsup).
 nif_sendfile(_SockRef, _SendRef, _Offset, _Count) ->
-    erlang:nif_error(undef).
-nif_sendfile(_SockRef) -> erlang:nif_error(undef).
+    erlang:nif_error(notsup).
+nif_sendfile(_SockRef) -> erlang:nif_error(notsup).
 
-nif_recv(_SockRef, _Length, _Flags, _RecvRef) -> erlang:nif_error(undef).
-nif_recvfrom(_SockRef, _Length, _Flags, _RecvRef) -> erlang:nif_error(undef).
+nif_recv(_SockRef, _Length, _Flags, _RecvRef) -> erlang:nif_error(notsup).
+nif_recvfrom(_SockRef, _Length, _Flags, _RecvRef) -> erlang:nif_error(notsup).
 nif_recvmsg(_SockRef, _BufSz, _CtrlSz, _Flags, _RecvRef) ->
-    erlang:nif_error(undef).
+    erlang:nif_error(notsup).
 
-nif_close(_SockRef) -> erlang:nif_error(undef).
-nif_finalize_close(_SockRef) -> erlang:nif_error(undef).
-nif_shutdown(_SockRef, _How) -> erlang:nif_error(undef).
+nif_close(_SockRef) -> erlang:nif_error(notsup).
+nif_finalize_close(_SockRef) -> erlang:nif_error(notsup).
+nif_shutdown(_SockRef, _How) -> erlang:nif_error(notsup).
 
-nif_setopt(_SockRef, _Lev, _Opt, _Val, _NativeVal) -> erlang:nif_error(undef).
-nif_getopt(_SockRef, _Lev, _Opt) -> erlang:nif_error(undef).
-nif_getopt(_SockRef, _Lev, _Opt, _ValSpec) -> erlang:nif_error(undef).
+nif_setopt(_SockRef, _Lev, _Opt, _Val, _NativeVal) -> erlang:nif_error(notsup).
+nif_getopt(_SockRef, _Lev, _Opt) -> erlang:nif_error(notsup).
+nif_getopt(_SockRef, _Lev, _Opt, _ValSpec) -> erlang:nif_error(notsup).
 
-nif_sockname(_SockRef) -> erlang:nif_error(undef).
-nif_peername(_SockRef) -> erlang:nif_error(undef).
+nif_sockname(_SockRef) -> erlang:nif_error(notsup).
+nif_peername(_SockRef) -> erlang:nif_error(notsup).
 
-nif_cancel(_SockRef, _Op, _SelectRef) -> erlang:nif_error(undef).
+nif_ioctl(_SockRef, _GReq)               -> erlang:nif_error(notsup).
+nif_ioctl(_SockRef, _GReq, _Arg)         -> erlang:nif_error(notsup).
+nif_ioctl(_SockRef, _SReq, _Arg1, _Arg2) -> erlang:nif_error(notsup).
+
+nif_cancel(_SockRef, _Op, _SelectRef) -> erlang:nif_error(notsup).
+
 
 %% ===========================================================================

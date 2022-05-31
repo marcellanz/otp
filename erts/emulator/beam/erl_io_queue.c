@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  * 
- * Copyright Ericsson AB 2017-2018. All Rights Reserved.
+ * Copyright Ericsson AB 2017-2021. All Rights Reserved.
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -413,7 +413,7 @@ SysIOVec* erts_ioq_peekq(ErtsIOQueue *q, int* vlenp)  /* length of io-vector */
 /* Fills a possibly deep list of chars and binaries into vec
 ** Small characters are first stored in the buffer buf of length ln
 ** binaries found are copied and linked into msoh
-** Return  vector length on succsess,
+** Return  vector length on success,
 **        -1 on overflow
 **        -2 on type error
 */

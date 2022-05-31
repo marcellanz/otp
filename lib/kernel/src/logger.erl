@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2017-2020. All Rights Reserved.
+%% Copyright Ericsson AB 2017-2022. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -318,8 +318,8 @@ format_otp_report(Report) ->
       FormatArgs :: {io:format(),[term()]}.
 format_report(Report) when is_map(Report) ->
     format_report(maps:to_list(Report));
-format_report(Report)  when is_list(Report) ->
-    case lists:flatten(Report) of
+format_report(Report) ->
+    try lists:flatten(Report) of
         [] ->
             {"~tp",[[]]};
         FlatList ->
@@ -329,9 +329,9 @@ format_report(Report)  when is_list(Report) ->
                 false ->
                     format_term_list(Report,[],[])
             end
-    end;
-format_report(Report) ->
-    {"~tp",[Report]}.
+    catch _:_ ->
+            {"~tp",[Report]}
+    end.
 
 format_term_list([{Tag,Data}|T],Format,Args) ->
     PorS = case string_p(Data) of
@@ -344,10 +344,13 @@ format_term_list([Data|T],Format,Args) ->
 format_term_list([],Format,Args) ->
     {lists:flatten(lists:join($\n,lists:reverse(Format))),lists:reverse(Args)}.
 
-string_p(List) when is_list(List) ->
-    string_p1(lists:flatten(List));
-string_p(_) ->
-    false.
+string_p(List) ->
+    try lists:flatten(List) of
+        FlatList ->
+            string_p1(FlatList)
+    catch _:_ ->
+            false
+    end.
 
 string_p1([]) ->
     false;
@@ -988,11 +991,19 @@ get_logger_level() ->
     end.
 
 get_primary_metadata() ->
-    case application:get_env(kernel,logger_default_metadata,#{}) of
-        Meta when is_map(Meta) ->
+    case application:get_env(kernel,logger_metadata) of
+        {ok, Meta} when is_map(Meta) ->
             Meta;
-        Meta ->
-            throw({logger_metadata, Meta})
+        {ok, Meta} ->
+            throw({logger_metadata, Meta});
+        undefined ->
+            %% This case is here to keep bug compatibility. Can be removed in OTP 25.
+            case application:get_env(kernel,logger_default_metadata,#{}) of
+                Meta when is_map(Meta) ->
+                    Meta;
+                Meta ->
+                    throw({logger_metadata, Meta})
+            end
     end.
 
 get_primary_filter_default(Env) ->
@@ -1145,12 +1156,13 @@ log_fun_allowed(Location, Level, FunRes, Meta, FunCall) ->
                         Meta)
     end.
 
-do_log_allowed(Level,{Format,Args}=Msg,Meta,Tid,Config)
+do_log_allowed(Level,{Format,Args},Meta,Tid,Config)
   when ?IS_LEVEL(Level),
        ?IS_FORMAT(Format),
        is_list(Args),
        is_map(Meta) ->
-    logger_backend:log_allowed(#{level=>Level,msg=>Msg,meta=>Meta},Tid,Config);
+    logger_backend:log_allowed(#{level=>Level,msg=>{deatomize(Format),Args},meta=>Meta},
+                               Tid,Config);
 do_log_allowed(Level,Report,Meta,Tid,Config)
   when ?IS_LEVEL(Level),
        ?IS_REPORT(Report),
@@ -1165,6 +1177,9 @@ do_log_allowed(Level,String,Meta,Tid,Config)
                                Tid,Config).
 tid() ->
     ets:whereis(?LOGGER_TABLE).
+
+deatomize(Atom) when is_atom(Atom) -> atom_to_list(Atom);
+deatomize(Other) -> Other.
 
 log_remote(Node,Level,{Format,Args},Meta) ->
     log_remote(Node,{log,Level,Format,Args,Meta});
@@ -1198,7 +1213,7 @@ default(pid) -> self();
 default(gl) -> group_leader();
 default(time) -> timestamp().
 
-%% Remove everything upto and including this module from the stacktrace
+%% Remove everything up to and including this module from the stacktrace
 filter_stacktrace(Module,[{Module,_,_,_}|_]) ->
     [];
 filter_stacktrace(Module,[H|T]) ->

@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2020. All Rights Reserved.
+%% Copyright Ericsson AB 2020-2022. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -189,7 +189,20 @@ format_lists_error(keysearch, Args) ->
 format_lists_error(member, [_Key, List]) ->
     [[], must_be_list(List)];
 format_lists_error(reverse, [List, _Acc]) ->
-    [must_be_list(List)].
+    [must_be_list(List)];
+format_lists_error(seq, [First, Last, Inc]) ->
+    case [must_be_integer(First), must_be_integer(Last), must_be_integer(Inc)] of
+        [[], [], []] ->
+            IncError = if
+                (Inc =< 0 andalso First - Inc =< Last) ->
+                    <<"not a positive increment">>;
+                (Inc >= 0 andalso First - Inc >= Last) ->
+                    <<"not a negative increment">>
+            end,
+            [[], [], IncError];
+        Errors -> Errors
+    end.
+
 
 format_maps_error(filter, Args) ->
     format_maps_error(map, Args);
@@ -212,6 +225,10 @@ format_maps_error(get, [_Key,Map]) ->
         true ->
             [[],not_map]
     end;
+format_maps_error(groups_from_list, [Fun, List]) ->
+    [must_be_fun(Fun, 1), must_be_list(List)];
+format_maps_error(groups_from_list, [Fun1, Fun2, List]) ->
+    [must_be_fun(Fun1, 1), must_be_fun(Fun2, 1), must_be_list(List)];
 format_maps_error(get, [_,_,_]) ->
     [[],not_map];
 format_maps_error(intersect, [Map1, Map2]) ->
@@ -296,7 +313,9 @@ format_re_error(compile, [_], _) ->
     [not_iodata];
 format_re_error(compile, [Re, _Options], Cause) ->
     ReError = try re:compile(Re) of
-                  _ -> []
+                  {ok, _} -> [];
+                  {error, Reason} ->
+                      {bad_regexp, Reason}
               catch
                   _:_ -> not_iodata
               end,
@@ -380,6 +399,12 @@ format_unicode_error(characters_to_nfkd_list, [_]) ->
 
 unicode_char_data(Chars) ->
     try unicode:characters_to_binary(Chars) of
+        {error,_,_} ->
+            bad_char_data;
+
+        {incomplete,_,_} ->
+            bad_char_data;
+
         _ ->
             []
     catch
@@ -424,6 +449,11 @@ format_io_error(_, _, {io, arguments}, true) ->
     [device_arguments];
 format_io_error(_, _, {io, arguments}, false) ->
     [{general,device_arguments}];
+%% calling_self, Io =:= self()
+format_io_error(_, _, {io, calling_self}, true) ->
+    [calling_self];
+format_io_error(_, _, {io, calling_self}, false) ->
+    [{general,calling_self}];
 %% terminated, monitor(Io) failed
 format_io_error(_, _, {io, terminated}, true) ->
     [device_terminated];
@@ -957,10 +987,21 @@ must_be_position(Pos) when is_integer(Pos) -> range;
 must_be_position(_) -> not_integer.
 
 must_be_regexp(Term) ->
-    try re:run("", Term) of
-        _ -> []
-    catch
-        error:_ -> not_regexp
+    %% First check if we can compile the regexp as this
+    %% returns better error messages
+    try re:compile(Term) of
+        {ok, _} ->
+            [];
+        {error, Reason} ->
+            {bad_regexp, Reason}
+    catch error:_ ->
+            %% Then check if we can run it as this also allows
+            %% compiled reg exps
+            try re:run("", Term) of
+                _ -> []
+            catch
+                error:_ -> not_regexp
+            end
     end.
 
 expand_error(already_owner) ->
@@ -995,6 +1036,8 @@ expand_error(bad_update_op) ->
     <<"not a valid update operation">>;
 expand_error(bitstring) ->
     <<"is a bitstring (expected a binary)">>;
+expand_error(calling_self) ->
+    <<"the device is not allowed to be the current process">>;
 expand_error(counter_not_integer) ->
     <<"the value in the given position, in the object, is not an integer">>;
 expand_error(dead_process) ->
@@ -1052,6 +1095,11 @@ expand_error(not_pid) ->
     <<"not a pid">>;
 expand_error(not_regexp) ->
     <<"neither an iodata term nor a compiled regular expression">>;
+expand_error({bad_regexp, {Reason,Column}}) ->
+    unicode:characters_to_binary(
+      io_lib:format("could not parse regular expression~n"
+                    "~ts on character ~p",
+                    [Reason, Column]));
 expand_error(not_tuple) ->
     <<"not a tuple">>;
 expand_error(not_tuple_or_list) ->

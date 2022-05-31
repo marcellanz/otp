@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 2007-2018. All Rights Reserved.
+ * Copyright Ericsson AB 2007-2022. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -130,13 +130,19 @@ ERTS_GLB_INLINE Eterm follow_moved(Eterm term, Eterm xptr_tag)
  * Global exported
  */
 
-#define ERTS_IS_GC_DESIRED_INTERNAL(Proc, HTop, STop)			\
+#define ERTS_IS_GC_DESIRED_INTERNAL(Proc, HTop, STop, XtraFlags)	\
     ((((STop) - (HTop) < (Sint)(Proc)->mbuf_sz))                        \
      | ((Proc)->off_heap.overhead > (Proc)->bin_vheap_sz)		\
-     | !!((Proc)->flags & F_FORCE_GC))
+     | !!((Proc)->flags & (F_FORCE_GC|XtraFlags)))
 
 #define ERTS_IS_GC_DESIRED(Proc)					\
-    ERTS_IS_GC_DESIRED_INTERNAL((Proc), (Proc)->htop, (Proc)->stop)
+    ERTS_IS_GC_DESIRED_INTERNAL((Proc), (Proc)->htop, (Proc)->stop, 0)
+
+/* ERTS_IS_GC_AFTER_BIF_DESIRED also triggers for flag F_DISABLE_GC,
+ * not to actually do GC but we need to call erts_gc_after_bif_call_lhf
+ * for some bookkeeping of live_hf_end. */
+#define ERTS_IS_GC_AFTER_BIF_DESIRED(Proc)			        \
+    ERTS_IS_GC_DESIRED_INTERNAL((Proc), (Proc)->htop, (Proc)->stop, F_DISABLE_GC)
 
 #define ERTS_FORCE_GC_INTERNAL(Proc, FCalls)				\
     do {								\
@@ -187,6 +193,19 @@ void erts_copy_one_frag(Eterm** hpp, ErlOffHeap* off_heap,
                         ErlHeapFragment *bp, Eterm *refs, int nrefs);
 #if defined(DEBUG) || defined(ERTS_OFFHEAP_DEBUG)
 int erts_dbg_within_proc(Eterm *ptr, Process *p, Eterm* real_htop);
+#endif
+
+#ifdef DEBUG
+/* Validates the frame chain, ensuring that it always points within the stack
+ * and that no frames are skipped. */
+void erts_validate_stack(Process *p, Eterm *frame_ptr, Eterm *stack_top);
+int
+erts_dbg_check_heap_terms(int (*check_eterm)(Eterm),
+                          Process *p,
+                          Eterm *real_htop);
+void
+erts_dbg_check_no_empty_boxed_non_literal_on_heap(Process *p,
+                                                  Eterm *real_htop);
 #endif
 
 #endif /* __ERL_GC_H__ */

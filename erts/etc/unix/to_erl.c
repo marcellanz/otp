@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  * 
- * Copyright Ericsson AB 1996-2020. All Rights Reserved.
+ * Copyright Ericsson AB 1996-2021. All Rights Reserved.
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -487,7 +487,7 @@ int main(int argc, char **argv)
     }
 
     /* 
-     * Reset terminal characterstics 
+     * Reset terminal characteristics 
      * XXX
      */
     tcsetattr(0, TCSADRAIN, &tty_rmode);

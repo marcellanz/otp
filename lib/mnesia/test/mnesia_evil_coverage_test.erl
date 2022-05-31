@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1996-2018. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2021. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -696,7 +696,7 @@ verify_ll_queue(N) ->
     ?match(granted,mnesia_controller:block_controller()),
     case mnesia_controller:get_info(1000) of
 	{info,{state,_,true,[],_Loader,[],[],[],_,_,_,_,_,_}} ->
-	    %% Very slow SMP machines havn't loaded it yet..
+	    %% Very slow SMP machines haven't loaded it yet..
 	    mnesia_controller:unblock_controller(),
 	    timer:sleep(10),
 	    verify_ll_queue(N-1);
@@ -1295,7 +1295,7 @@ offline_set_master_nodes(Config) when is_list(Config) ->
     ?verify_mnesia(Nodes, []).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%% Syncronize table with log or disc
+%% Synchronize table with log or disc
 %%
 
 %% Dump ram tables on disc
@@ -2091,7 +2091,7 @@ test_ext_sub(Tab1, Tab2, Tab3) ->
 
 
 subscribe_standard(doc) ->
-    ["Tests system events and the orignal table events"];
+    ["Tests system events and the original table events"];
 subscribe_standard(suite) -> [];
 subscribe_standard(Config) when is_list(Config)-> 
     [N1, N2]=?acquire_nodes(2, Config),
@@ -2572,8 +2572,8 @@ index_cleanup(Config) when is_list(Config) ->
     Tabs = [i_set, i_bag, i_oset],
 
     Add = fun(Tab) ->
-                  Write = fun(Tab) ->
-                                  Recs = [{Tab, N, N rem 5} || N <- lists:seq(1,10)],
+                  Write = fun(Table) ->
+                                  Recs = [{Table, N, N rem 5} || N <- lists:seq(1,10)],
                                   [ok = mnesia:write(Rec) || Rec <- Recs],
                                   Recs
                           end,
@@ -2582,8 +2582,8 @@ index_cleanup(Config) when is_list(Config) ->
           end,
 
     IRead = fun(Tab) ->
-                    Read = fun(Tab) ->
-                                   [mnesia:index_read(Tab, N, val) || N <- lists:seq(0,4)]
+                    Read = fun(Table) ->
+                                   [mnesia:index_read(Table, N, val) || N <- lists:seq(0,4)]
                            end,
                     {atomic, Recs} = mnesia:transaction(Read, [Tab]),
                     lists:sort(lists:flatten(Recs))

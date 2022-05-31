@@ -4,7 +4,7 @@
 <appref>
   <header>
     <copyright>
-      <year>1996</year><year>2020</year>
+      <year>1996</year><year>2022</year>
       <holder>Ericsson AB. All Rights Reserved.</holder>
     </copyright>
     <legalnotice>
@@ -121,7 +121,7 @@
       application. For more information about configuration parameters,
     see file <seefile marker="app"><c>app(4)</c></seefile>.</p>
     <taglist>
-      <tag><c>distributed = [Distrib]</c></tag>
+      <tag><marker id="distributed"/><c>distributed = [Distrib]</c></tag>
       <item>
         <p>Specifies which applications that are distributed and on which
           nodes they are allowed to execute. In this parameter:</p>
@@ -158,7 +158,7 @@
         distribution connections. Using this option implies that the node
         also is <seecom marker="erts:erl#hidden"><c>-hidden</c></seecom>.</p>
       </item>
-      <tag><c>permissions = [Perm]</c></tag>
+      <tag><marker id="permissions"/><c>permissions = [Perm]</c></tag>
       <item>
         <p>Specifies the default permission for applications when they
           are started. In this parameter:</p>
@@ -244,9 +244,8 @@
 	    to be forwarded to the handlers.</p>
 	</note>
       </item>
-      <tag><c>global_groups = [GroupTuple]</c></tag>
+      <tag><marker id="global_groups"/><c>global_groups = [GroupTuple]</c></tag>
       <item>
-        <marker id="global_groups"></marker>
         <p>Defines global groups, see
 	  <seeerl marker="global_group"><c>global_group(3)</c></seeerl>.
 	In this parameter:</p>
@@ -257,56 +256,54 @@
           <item><p><c>Node = node()</c></p></item>
         </list>
       </item>
-      <tag><c>inet_default_connect_options = [{Opt, Val}]</c></tag>
+      <tag><marker id="inet_default_connect_options"/><c>inet_default_connect_options = [{Opt, Val}]</c></tag>
       <item>
         <p>Specifies default options for <c>connect</c> sockets,
           see <seeerl marker="inet"><c>inet(3)</c></seeerl>.</p>
       </item>
-      <tag><c>inet_default_listen_options = [{Opt, Val}]</c></tag>
+      <tag><marker id="inet_default_listen_options"/><c>inet_default_listen_options = [{Opt, Val}]</c></tag>
       <item>
         <p>Specifies default options for <c>listen</c> (and
           <c>accept</c>) sockets, see <seeerl marker="inet"><c>inet(3)</c></seeerl>.</p>
       </item>
-      <tag><c>{inet_dist_use_interface, ip_address()}</c></tag>
+      <tag><marker id="inet_dist_use_interface"/><c>inet_dist_use_interface = ip_address()</c></tag>
       <item>
         <p>If the host of an Erlang node has many network interfaces,
           this parameter specifies which one to listen on. For the type definition
 	  of <c>ip_address()</c>,
 	  see <seeerl marker="inet"><c>inet(3)</c></seeerl>.</p>
       </item>
-      <tag><c>{inet_dist_listen_min, First}</c> and <c>{inet_dist_listen_max, Last}</c></tag>
+      <tag><marker id="inet_dist_listen"/><c>inet_dist_listen_min = First</c><br/><c>inet_dist_listen_max = Last</c></tag>
       <item>
         <p>Defines the <c>First..Last</c> port range for the listener
           socket of a distributed Erlang node.</p>
       </item>
-      <tag><c>{inet_dist_listen_options, Opts}</c></tag>
+      <tag><marker id="inet_dist_listen_options"/><c>inet_dist_listen_options = Opts</c></tag>
       <item>
-	<marker id="inet_dist_listen_options"></marker>
         <p>Defines a list of extra socket options to be used when opening the
 	  listening socket for a distributed Erlang node.
 	  See <seemfa marker="gen_tcp#listen/2"><c>gen_tcp:listen/2</c></seemfa>.</p>
       </item>
-      <tag><c>{inet_dist_connect_options, Opts}</c></tag>
+      <tag><marker id="inet_dist_connect_options"/><c>inet_dist_connect_options = Opts</c></tag>
       <item>
-	<marker id="inet_dist_connect_options"></marker>
         <p>Defines a list of extra socket options to be used when connecting to
 	  other distributed Erlang nodes.
 	  See <seemfa marker="gen_tcp#connect/4"><c>gen_tcp:connect/4</c></seemfa>.</p>
       </item>
-      <tag><c>inet_parse_error_log = silent</c></tag>
+      <tag><marker id="inet_parse_error_log"/><c>inet_parse_error_log = silent</c></tag>
       <item>
         <p>If set, no log events are issued when erroneous lines are
           found and skipped in the various Inet configuration
           files.</p>
       </item>
-      <tag><c>inetrc = Filename</c></tag>
+      <tag><marker id="inetrc"/><c>inetrc = Filename</c></tag>
       <item>
         <p>The name (string) of an Inet user configuration file. For details,
 	see section
 	<seeguide marker="erts:inet_cfg"><c>Inet Configuration</c></seeguide>
 	in the ERTS User's Guide.</p>
       </item>
-      <tag><c>net_setuptime = SetupTime</c></tag>
+      <tag><marker id="net_setuptime"/><c>net_setuptime = SetupTime</c></tag>
       <item>
         <marker id="net_setuptime"></marker>
         <p><c>SetupTime</c> must be a positive integer or floating point
@@ -319,36 +316,113 @@
           setup time, but rather each individual network operation during
           the connection setup and handshake.</p>
       </item>
-      <tag><c>net_ticktime = TickTime</c></tag>
+      <tag><marker id="net_ticker_spawn_options"/><c>net_ticker_spawn_options = Opts</c></tag>
       <item>
-        <marker id="net_ticktime"></marker>
-        <p>Specifies the <c>net_kernel</c> tick time in seconds. This is the
+        <p>
+          Defines a list of extra spawn options for net ticker processes. There exist
+          one such process for each connection to another node. A net ticker process is
+          responsible for supervising the connection it is associated with. These
+          processes also execute the distribution handshake protocol when setting up
+          connections. When there is a large number of distribution connections,
+          setting up garbage collection options can be helpful to reduce memory usage.
+          Default is <c>[link, {priority, max}]</c>, and these two options cannot be
+          changed. The <c>monitor</c> and <c>{monitor, MonitorOpts}</c> options are
+          not allowed and will be dropped if present. See the documentation of the
+          <seemfa marker="erts:erlang#spawn_opt/4"><c>erlang:spawn_opt/4</c></seemfa>
+          BIF for information about valid options. If the <c>Opts</c> list is not
+          a proper list, or containing invalid options the setup of connections
+          will fail.
+        </p>
+        <p>
+          Note that the behavior described above is only true if the distribution
+          carrier protocol used is implemented as described in
+ 	  <seeguide marker="erts:alt_dist#distribution_module">ERTS
+	  User's Guide ➜ How to implement an Alternative Carrier
+	  for the Erlang Distribution ➜ Distribution Module</seeguide> without
+          further alterations. The implementer of the distribution carrier protocol
+          used, may have chosen to ignore the <c>net_ticker_spawn_options</c> parameter
+          or altered its behavior. Currently all distribution modules shipped with OTP
+          do, however, behave as described above.
+        </p>
+      </item>
+      <tag><marker id="net_tickintensity"/><c>net_tickintensity = NetTickIntensity</c></tag>
+      <item>
+        <p><i>Net tick intensity</i> specifies how many ticks to send during a
+        <seeapp marker="#net_ticktime">net tick time</seeapp> period when
+        no other data is sent over a connection to another node. This also
+        determines how often to check for data from the other node. The
+        higher net tick intensity, the closer to the chosen net tick time period
+        the node will detect an unresponsive node. The net tick intensity
+        defaults to <c>4</c>. The value of <c>NetTickIntensity</c> should be
+        an integer in the range <c>4..1000</c>. If the <c>NetTickIntensity</c>
+        is not an integer or an integer less than <c>4</c>, <c>4</c> will
+        silently be used. If <c>NetTickIntensity</c> is an integer larger than
+        <c>1000</c>, <c>1000</c> will silently be used.
+        </p>
+        <note>
+          <p>Note that all communicating nodes are expected to use the same
+          <i>net tick intensity</i> as well as the same <i>net tick time</i>.</p>
+        </note>
+        <warning>
+          <p>Be careful not to set a too high net tick intensity, since you
+          can overwhelm the node with work if it is set too high.</p>
+        </warning>
+      </item>
+      <tag><marker id="net_ticktime"/><c>net_ticktime = NetTickTime</c></tag>
+      <item>
+        <p>Specifies the <i>net tick time</i> in seconds. This is the
 	approximate time a connected node may be unresponsive until it is
 	considered down and thereby disconnected.</p>
-	<p>Once every <c>TickTime/4</c> seconds, each connected node is ticked
-	if nothing has been sent to it during that last <c>TickTime/4</c>
-	interval. A tick is a small package sent on the connection. A connected
-	node is considered to be down if no ticks or payload packages have been
-	received during the last four <c>TickTime/4</c> intervals. This ensures
-	that nodes that are not responding, for reasons such as hardware errors,
-	are considered to be down.</p>
-        <p>As the availability is only checked every <c>TickTime/4</c> seconds,
+        <p>Net tick time together with <seeapp marker="#net_tickintensity">net
+        tick intensity</seeapp> determines an interval <c>TickInterval =
+        NetTickTime/NetTickIntensity</c>. Once every <c>TickInterval</c> seconds,
+        each connected node is ticked if nothing has been sent to it during that
+        last <c>TickInterval</c> seconds. A tick is a small package sent on the
+        connection.
+        A connected node is considered to be down if no ticks or payload packages
+        have been received during the last <c>NetTickIntensity</c> number of
+        <c>TickInterval</c> seconds intervals. This ensures that nodes that
+        are not responding, for reasons such as hardware errors, are considered
+        to be down.</p>
+        <p>As the availability is only checked every <c>TickInterval</c> seconds,
 	the actual time <c>T</c> a node have been unresponsive when
 	detected may vary between <c>MinT</c> and <c>MaxT</c>,
 	where:</p>
         <code type="none">
-MinT = TickTime - TickTime / 4
-MaxT = TickTime + TickTime / 4</code>
-        <p><c>TickTime</c> defaults to <c>60</c> seconds. Thus,
+MinT = NetTickTime - NetTickTime / NetTickIntensity
+MaxT = NetTickTime + NetTickTime / NetTickIntensity</code>
+        <p><c>NetTickTime</c> defaults to <c>60</c> seconds and
+        <c>NetTickIntensity</c> defaults to <c>4</c>. Thus,
         <c><![CDATA[45 < T < 75]]></c> seconds.</p>
+        <note>
         <p>Notice that <em>all</em> communicating nodes are to have the
-	<em>same</em> <c>TickTime</c> value specified, as it determines both the
-	frequency of outgoing ticks and the expected frequency of incominging
-	ticks.</p>
+	<em>same</em> <c>NetTickTime</c> and <c>NetTickIntensity</c> values
+        specified, as it determines both the frequency of outgoing ticks and
+        the expected frequency of incominging ticks.</p>
+        </note>
+        <p><c>NetTickTime</c> needs to be a multiple of <c>NetTickIntensity</c>.
+        If the configured values are not, <c>NetTickTime</c> will internally be
+        rounded up to the nearest millisecond.
+        <seemfa marker="net_kernel#get_net_ticktime/0"><c>net_kernel:get_net_ticktime()</c></seemfa>
+        will, however, report net tick time truncated to the nearest second.
+        </p>
         <p>Normally, a terminating node is detected immediately by the transport
 	protocol (like TCP/IP).</p>
       </item>
-      <tag><c>shutdown_timeout = integer() | infinity</c></tag>
+      <tag><marker id="prevent_overlapping_partitions"/>
+      <c>prevent_overlapping_partitions = true | false</c></tag>
+      <item>
+        <p>
+          If enabled (<c>true</c>), <c>global</c> will actively prevent
+          overlapping partitions from forming when connections are lost
+          between nodes. This fix is enabled by default. If you are about
+          to disable this fix, make sure to read the
+          <seeerl marker="kernel:global#prevent_overlapping_partitions">
+            <c>global(3)</c></seeerl> documentation about this fix for
+            more important information about this.
+        </p>
+      </item>
+      <tag><marker id="shutdown_timeout"/><c>shutdown_timeout = integer() | infinity</c></tag>
       <item>
         <p>Specifies the time <c>application_controller</c> waits
           for an application to terminate during node shutdown. If the
@@ -357,7 +431,7 @@ MaxT = TickTime + TickTime / 4</code>
           application. If this parameter is undefined, it defaults
           to <c>infinity</c>.</p>
       </item>
-      <tag><c>sync_nodes_mandatory = [NodeName]</c></tag>
+      <tag><marker id="sync_nodes_mandatory"/><c>sync_nodes_mandatory = [NodeName]</c></tag>
       <item>
         <p>Specifies which other nodes that <em>must</em> be alive
           for this node to start properly. If some node in the list
@@ -365,7 +439,7 @@ MaxT = TickTime + TickTime / 4</code>
           start either. If this parameter is undefined, it defaults to
           <c>[]</c>.</p>
       </item>
-      <tag><c>sync_nodes_optional = [NodeName]</c></tag>
+      <tag><marker id="sync_nodes_optional"/><c>sync_nodes_optional = [NodeName]</c></tag>
       <item>
         <p>Specifies which other nodes that <em>can</em> be alive
           for this node to start properly. If some node in this list
@@ -373,7 +447,7 @@ MaxT = TickTime + TickTime / 4</code>
           anyway. If this parameter is undefined, it defaults to
           the empty list.</p>
       </item>
-      <tag><c>sync_nodes_timeout = integer() | infinity</c></tag>
+      <tag><marker id="sync_nodes_timeout"/><c>sync_nodes_timeout = integer() | infinity</c></tag>
       <item>
         <p>Specifies the time (in milliseconds) that this node
           waits for the mandatory and optional nodes to start. If
@@ -381,7 +455,7 @@ MaxT = TickTime + TickTime / 4</code>
           performed. This option ensures that <c>global</c> is
           synchronized.</p>
       </item>
-      <tag><c>start_distribution = true | false</c></tag>
+      <tag><marker id="start_distribution"/><c>start_distribution = true | false</c></tag>
       <item>
         <p>Starts all distribution services, such as <c>rpc</c>,
           <c>global</c>, and <c>net_kernel</c> if the parameter is
@@ -389,7 +463,7 @@ MaxT = TickTime + TickTime / 4</code>
           for systems who want to disable all distribution functionality.</p>
         <p>Defaults to <c>true</c>.</p>
       </item>
-      <tag><c>start_dist_ac = true | false</c></tag>
+      <tag><marker id="start_dist_ac"/><c>start_dist_ac = true | false</c></tag>
       <item>
         <p>Starts the <c>dist_ac</c> server if the parameter is
           <c>true</c>. This parameter is to be set to <c>true</c> for
@@ -398,7 +472,7 @@ MaxT = TickTime + TickTime / 4</code>
           undefined, the server is started if parameter
           <c>distributed</c> is set.</p>
       </item>
-      <tag><c>start_boot_server = true | false</c></tag>
+      <tag><marker id="start_boot_server"/><c>start_boot_server = true | false</c></tag>
       <item>
         <p>Starts the <c>boot_server</c> if the parameter is <c>true</c>
           (see <seeerl marker="erl_boot_server"><c>erl_boot_server(3)</c></seeerl>).
@@ -406,7 +480,7 @@ MaxT = TickTime + TickTime / 4</code>
 	  using this service.</p>
         <p>Defaults to <c>false</c>.</p>
       </item>
-      <tag><c>boot_server_slaves = [SlaveIP]</c></tag>
+      <tag><marker id="boot_server_slaves"/><c>boot_server_slaves = [SlaveIP]</c></tag>
       <item>
         <p>If configuration parameter <c>start_boot_server</c> is
           <c>true</c>, this parameter can be used to initialize
@@ -418,7 +492,7 @@ MaxT = TickTime + TickTime / 4</code>
 	<p><c>'150.236.16.70', "150,236,16,70", {150,236,16,70}</c>.</p>
         <p>Defaults to <c>[]</c>.</p>
       </item>
-      <tag><c>start_disk_log = true | false</c></tag>
+      <tag><marker id="start_disk_log"/><c>start_disk_log = true | false</c></tag>
       <item>
         <p>Starts the <c>disk_log_server</c> if the parameter is
           <c>true</c> (see <seeerl marker="disk_log"><c>disk_log(3)</c></seeerl>).
@@ -426,7 +500,7 @@ MaxT = TickTime + TickTime / 4</code>
 	  using this service.</p>
         <p>Defaults to <c>false</c>.</p>
       </item>
-      <tag><c>start_pg = true | false</c></tag>
+      <tag><marker id="start_pg"/><c>start_pg = true | false</c></tag>
       <item>
         <marker id="start_pg"></marker>
         <p>Starts the default <c>pg</c> scope server (see
@@ -435,7 +509,7 @@ MaxT = TickTime + TickTime / 4</code>
           <c>true</c> in an embedded system that uses this service.</p>
         <p>Defaults to <c>false</c>.</p>
       </item>
-      <tag><c>start_timer = true | false</c></tag>
+      <tag><marker id="start_timer"/><c>start_timer = true | false</c></tag>
       <item>
         <p>Starts the <c>timer_server</c> if the parameter is
           <c>true</c> (see <seeerl marker="stdlib:timer"><c>timer(3)</c></seeerl>).
@@ -443,7 +517,7 @@ MaxT = TickTime + TickTime / 4</code>
 	  using this service.</p>
         <p>Defaults to <c>false</c>.</p>
       </item>
-      <tag><c>shell_history = enabled | disabled | module()</c></tag>
+      <tag><marker id="shell_history"/><c>shell_history = enabled | disabled | module()</c></tag>
       <item>
         <p>Specifies whether shell history should be logged to disk
            between usages of <c>erl</c> (<c>enabled</c>), not logged
@@ -454,25 +528,25 @@ MaxT = TickTime + TickTime / 4</code>
            called every time new line is entered in the shell. By default
            logging is disabled.</p>
       </item>
-      <tag><c>shell_history_drop = [string()]</c></tag>
+      <tag><marker id="shell_history_drop"/><c>shell_history_drop = [string()]</c></tag>
       <item>
         <p>Specific log lines that should not be persisted. For
            example <c>["q().", "init:stop()."]</c> will allow to
            ignore commands that shut the node down. Defaults to
            <c>[]</c>.</p>
       </item>
-      <tag><c>shell_history_file_bytes = integer()</c></tag>
+      <tag><marker id="shell_history_file_bytes"/><c>shell_history_file_bytes = integer()</c></tag>
       <item>
         <p>How many bytes the shell should remember. By default, the
            value is set to 512kb, and the minimal value is 50kb.</p>
       </item>
-      <tag><c>shell_history_path = string()</c></tag>
+      <tag><marker id="shell_history_path"/><c>shell_history_path = string()</c></tag>
       <item>
         <p>Specifies where the shell history files will be stored.
            defaults to the user's cache directory as returned by
            <c>filename:basedir(user_cache, "erlang-history")</c>.</p>
       </item>
-      <tag><c>shutdown_func = {Mod, Func}</c></tag>
+      <tag><marker id="shutdown_func"/><c>shutdown_func = {Mod, Func}</c></tag>
       <item>
         <p>Where:</p>
         <list type="bulleted">
@@ -486,7 +560,7 @@ MaxT = TickTime + TickTime / 4</code>
           return as soon as possible for <c>application_controller</c>
           to terminate properly.</p>
       </item>
-      <tag><c>source_search_rules = [DirRule] | [SuffixRule] </c></tag>
+      <tag><marker id="source_search_rules"/><c>source_search_rules = [DirRule] | [SuffixRule] </c></tag>
       <item>
 	<marker id="source_search_rules"></marker>
         <p>Where:</p>

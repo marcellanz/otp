@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 2000-2016. All Rights Reserved.
+ * Copyright Ericsson AB 2000-2021. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -242,7 +242,7 @@ public class OtpMsg {
      * <p>
      * The first time this method is called the actual payload is deserialized
      * and the Erlang term is created. Calling this method subsequent times will
-     * not cuase the message to be deserialized additional times, instead the
+     * not cause the message to be deserialized additional times, instead the
      * same Erlang term object will be returned.
      * </p>
      *

@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2007-2020. All Rights Reserved.
+%% Copyright Ericsson AB 2007-2022. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -132,7 +132,9 @@
                                                      cacerts]},
           cacerts                    => {undefined, [versions]},
           cert                       => {undefined, [versions]},
+          certs_keys                 => {undefined, [versions]},
           certfile                   => {<<>>,      [versions]},
+          certificate_authorities    => {false,     [versions]},
           ciphers                    => {[],        [versions]},
           client_renegotiation       => {undefined, [versions]},
           cookie                     => {true,      [versions]},
@@ -153,6 +155,7 @@
           hibernate_after            => {infinity,  [versions]},
           honor_cipher_order         => {false,     [versions]},
           honor_ecc_order            => {undefined, [versions]},
+          keep_secrets               => {false,     [versions]},
           key                        => {undefined, [versions]},
           keyfile                    => {undefined, [versions,
                                                      certfile]},
@@ -176,11 +179,12 @@
           password                   => {"",        [versions]},
           protocol                   => {tls,       []},
           psk_identity               => {undefined, [versions]},
+          receiver_spawn_opts        => {[],        [versions]},
           renegotiate_at             => {?DEFAULT_RENEGOTIATE_AT, [versions]},
           reuse_session              => {undefined, [versions]},
           reuse_sessions             => {true,      [versions]},
           secure_renegotiate         => {true,      [versions]},
-          keep_secrets               => {false,     [versions]},
+          sender_spawn_opts          => {[],        [versions]},
           server_name_indication     => {undefined, [versions]},
           session_tickets            => {disabled,     [versions]},
           signature_algs             => {undefined, [versions]},
@@ -215,6 +219,11 @@
                [versions, verify]},
           versions                   => {[], [protocol]}
          }).
+
+-define('TLS-1_3_ONLY_OPTIONS', [anti_replay, cookie, early_data, key_update_at, middlebox_comp_mode, session_tickets, supported_groups, use_ticket]).
+-define('FROM_TLS-1_2_ONLY_OPTIONS', [signature_algs, signature_algs_cert]).
+-define('PRE_TLS-1_3_ONLY_OPTIONS', [client_renegotiation, secure_renegotiate]).
+-define('TLS-1_0_ONLY_OPTIONS', [padding_check, beast_mitigation]).
 
 -record(socket_options,
 	{

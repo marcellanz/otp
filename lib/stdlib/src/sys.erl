@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 1996-2019. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2021. All Rights Reserved.
 %% 
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -40,7 +40,7 @@
 %% Types
 %%-----------------------------------------------------------------
 
--export_type([dbg_opt/0, dbg_fun/0, debug_option/0]).
+-export_type([dbg_opt/0, dbg_fun/0, debug_option/0, system_event/0]).
 
 -type name()         :: pid() | atom()
                       | {'global', term()}

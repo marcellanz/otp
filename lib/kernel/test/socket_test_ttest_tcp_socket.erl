@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 2018-2019. All Rights Reserved.
+%% Copyright Ericsson AB 2018-2021. All Rights Reserved.
 %% 
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -84,7 +84,7 @@ accept(#{sock := LSock, opts := #{async  := Async,
 	    ERROR
     end.
 
-%% If a timeout has been explictly specified, then we do not use
+%% If a timeout has been explicitly specified, then we do not use
 %% async here. We will pass it on to the reader process.
 accept(#{sock := LSock, opts := #{async  := Async,
                                   method := Method} = Opts}, Timeout) ->

@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2007-2019. All Rights Reserved.
+%% Copyright Ericsson AB 2007-2022. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -37,6 +37,7 @@
 %% Test cases
 -export([basic/0,
          basic/1,
+         monitor_nodes/1,
          payload/0,
          payload/1,
          dist_port_overload/0,
@@ -53,16 +54,21 @@
          listen_options/1,
          connect_options/0,
          connect_options/1,
+         net_ticker_spawn_options/0,
+         net_ticker_spawn_options/1,
          use_interface/0,
          use_interface/1,
          verify_fun_fail/0,
          verify_fun_fail/1,
          verify_fun_pass/0,
-         verify_fun_pass/1
+         verify_fun_pass/1,
+         epmd_module/0,
+         epmd_module/1
          ]).
 
 %% Apply export
 -export([basic_test/3,
+         monitor_nodes_test/3,
          payload_test/3,
          plain_options_test/3,
          plain_verify_options_test/3,
@@ -70,11 +76,18 @@
          listen_options_test/3,
          do_connect_options/2,
          connect_options_test/3,
+         net_ticker_spawn_options_test/3,
          verify_fun_fail_test/3,
          verify_fun_pass_test/3,
          verify_pass_always/3,
          verify_fail_always/3]).
 
+%% Epmd module export
+-export([start_link/0,
+         register_node/2,
+         register_node/3,
+         port_please/2,
+         address_please/3]).
 
 -define(DEFAULT_TIMETRAP_SECS, 240).
 -define(AWAIT_SSL_NODE_UP_TIMEOUT, 30000).
@@ -92,6 +105,7 @@ start_ssl_node_name(Name, Args) ->
 %%--------------------------------------------------------------------
 all() ->
     [basic,
+     monitor_nodes,
      payload,
      dist_port_overload,
      plain_options,
@@ -100,16 +114,18 @@ all() ->
      listen_port_options,
      listen_options,
      connect_options,
+     net_ticker_spawn_options,
      use_interface,
      verify_fun_fail,
-     verify_fun_pass
+     verify_fun_pass,
+     epmd_module
     ].
 
 init_per_suite(Config0) ->
     _ = end_per_suite(Config0),
     try crypto:start() of
 	ok ->
-	    %% Currently no ct function avilable for is_cover!
+	    %% Currently no ct function available for is_cover!
 	    case test_server:is_cover() of
 		false ->
 		    Config = add_ssl_opts_config(Config0),
@@ -160,6 +176,11 @@ basic() ->
     [{doc,"Test that two nodes can connect via ssl distribution"}].
 basic(Config) when is_list(Config) ->
     gen_dist_test(basic_test, Config).
+
+%%--------------------------------------------------------------------
+%% Test net_kernel:monitor_nodes with nodedown_reason (OTP-17838)
+monitor_nodes(Config) when is_list(Config) ->
+    gen_dist_test(monitor_nodes_test, Config).
 
 %%--------------------------------------------------------------------
 payload() ->
@@ -322,6 +343,22 @@ connect_options() ->
 connect_options(Config) when is_list(Config) ->
     try_setting_priority(fun do_connect_options/2, Config).
 
+%%--------------------------------------------------------------------
+net_ticker_spawn_options() ->
+    [{doc, "Test net_ticker_spawn_options"}].
+net_ticker_spawn_options(Config) when is_list(Config) ->
+    FullsweepString0 = "[{fullsweep_after,0}]",
+    FullsweepString =
+        case os:cmd("echo [{a,1}]") of
+            "[{a,1}]"++_ ->
+                FullsweepString0;
+            _ ->
+                %% Some shells need quoting of [{}]
+                "'"++FullsweepString0++"'"
+        end,
+    Options = "-kernel net_ticker_spawn_options "++FullsweepString,
+    gen_dist_test(net_ticker_spawn_options_test, [{tls_only_basic_opts, Options} | Config]).
+
 
 %%--------------------------------------------------------------------
 use_interface() ->
@@ -380,6 +417,53 @@ verify_fun_pass(Config) when is_list(Config) ->
         "client_verify_fun "
 	"\"{ssl_dist_SUITE,verify_pass_always,{}}\" ",
     gen_dist_test(verify_fun_pass_test, [{tls_verify_opts, AddTLSVerifyOpts} | Config]).
+
+%%--------------------------------------------------------------------
+epmd_module() ->
+    [{doc,"Test that custom epmd_modules work"}].
+epmd_module(Config0) when is_list(Config0) ->
+    Config = [{hostname, "dummy"} | Config0],
+    NH1 = start_ssl_node(Config, "-epmd_module " ++ atom_to_list(?MODULE)),
+    NH2 = start_ssl_node(Config, "-epmd_module " ++ atom_to_list(?MODULE)),
+
+    {ok, Port1} = apply_on_ssl_node(NH1, fun() -> application:get_env(kernel, dist_listen_port) end),
+    {ok, Port2} = apply_on_ssl_node(NH2, fun() -> application:get_env(kernel, dist_listen_port) end),
+    apply_on_ssl_node(NH1, fun() -> application:set_env(kernel, dist_connect_port, Port2) end),
+    apply_on_ssl_node(NH2, fun() -> application:set_env(kernel, dist_connect_port, Port1) end),
+
+    try
+        basic_test(NH1, NH2, Config)
+    catch
+	_:Reason ->
+	    stop_ssl_node(NH1),
+	    stop_ssl_node(NH2),
+	    ct:fail(Reason)
+    end,
+    stop_ssl_node(NH1),
+    stop_ssl_node(NH2),	
+    success(Config).
+
+start_link() ->
+    ignore.
+
+register_node(Name, Port) ->
+    register_node(Name, Port, inet_tcp).
+register_node(_Name, Port, _Driver) ->
+    %% Save the port number we're listening on.
+    application:set_env(kernel, dist_listen_port, Port),
+    Creation = rand:uniform(3),
+    {ok, Creation}.
+
+port_please(_Name, _Ip) ->
+    {ok, Port} = application:get_env(kernel, dist_connect_port),
+    {port, Port, 5}.
+
+address_please(_Name, "dummy", AddressFamily) ->
+    %% Use localhost.
+    {ok,Host} = inet:gethostname(),
+    inet:getaddr(Host, AddressFamily);
+address_please(_, _, _) ->
+    {error, nxdomain}.
 
 %%--------------------------------------------------------------------
 %%% Internal functions -----------------------------------------------
@@ -473,6 +557,41 @@ basic_test(NH1, NH2, _) ->
 			    end
 		    end)
      end.
+
+monitor_nodes_test(NH1, NH2, _) ->
+    Node2 = NH2#node_handle.nodename,
+
+    Ref = make_ref(),
+    MonitorNodesFun =
+        fun() ->
+                tstsrvr_format("Hi from ~p!~n", [node()]),
+                ok = net_kernel:monitor_nodes(true, [nodedown_reason]),
+                send_to_tstcntrl({self(), ready, Ref}),
+                NodeUp = receive_any(),
+                send_to_tstcntrl({self(), got, NodeUp}),
+                NodeDown = receive_any(),
+                send_to_tstcntrl({self(), got, NodeDown}),
+                ok = net_kernel:monitor_nodes(false, [nodedown_reason])
+        end,
+    spawn_link(fun () ->
+                       ok = apply_on_ssl_node(NH1, MonitorNodesFun)
+               end),
+    {SslPid, ready, Ref} = receive_any(),
+
+    %% Setup connection and expect 'nodeup'
+    pong = apply_on_ssl_node(NH1, fun () -> net_adm:ping(Node2) end),
+    {SslPid, got, {nodeup, Node2, []}} = receive_any(),
+
+    %% Disconnect and expect 'nodedown' with correct reason
+    true = apply_on_ssl_node(NH1, fun () ->
+                                          net_kernel:disconnect(Node2)
+                                  end),
+    {SslPid, got, {nodedown, Node2, [{nodedown_reason, disconnect}]}} = receive_any(),
+    ok.
+
+
+receive_any() ->
+    receive M -> M end.
 
 payload_test(NH1, NH2, _) ->
     Node1 = NH1#node_handle.nodename,
@@ -594,6 +713,23 @@ connect_options_test(NH1, NH2, Config) ->
     %% Node 2 will not, since it only applies to outbound connections.
     [] = Elevated2.
 
+net_ticker_spawn_options_test(NH1, NH2, _Config) ->
+    Node1 = NH1#node_handle.nodename,
+    Node2 = NH2#node_handle.nodename,
+
+    pong = apply_on_ssl_node(NH1, fun () -> net_adm:ping(Node2) end),
+
+    FullsweepOptionNode1 =
+        apply_on_ssl_node(NH1, fun () -> get_dist_util_fullsweep_option(Node2) end),
+    FullsweepOptionNode2 =
+        apply_on_ssl_node(NH2, fun () -> get_dist_util_fullsweep_option(Node1) end),
+
+    ct:pal("FullsweepOptionNode1: ~p~n", [FullsweepOptionNode1]),
+    ct:pal("FullsweepOptionNode2: ~p~n", [FullsweepOptionNode2]),
+
+    0 = FullsweepOptionNode1,
+    0 = FullsweepOptionNode2.
+
 
 verify_fun_fail_test(NH1, NH2, _) ->
     Node2 = NH2#node_handle.nodename,
@@ -635,6 +771,14 @@ get_socket_priorities() ->
 	{ok,[{priority,Priority}]} <-
 	    [inet:getopts(Port, [priority]) || Port <- inet_ports()]].
 
+get_dist_util_fullsweep_option(Node) ->
+    SenderPid = proplists:get_value(Node, erlang:system_info(dist_ctrl)),
+    {links, Links1} = erlang:process_info(SenderPid, links),
+    {links, Links2} = erlang:process_info(whereis(net_kernel), links),
+    [DistUtilPid] = [X || X <- Links1, Y <- Links2, X =:= Y],
+    {garbage_collection, GCOpts} = erlang:process_info(DistUtilPid, garbage_collection),
+    proplists:get_value(fullsweep_after, GCOpts).
+
 inet_ports() ->
      [Port || Port <- erlang:ports(),
               element(2, erlang:port_info(Port, name)) =:= "tcp_inet"].
@@ -653,11 +797,17 @@ start_ssl_node(Config, XArgs) ->
 mk_node_name(Config) ->
     N = erlang:unique_integer([positive]),
     Case = proplists:get_value(testcase, Config),
+    Hostname =
+        case proplists:get_value(hostname, Config) of
+            undefined -> "";
+            Host -> "@" ++ Host
+        end,
     atom_to_list(?MODULE)
 	++ "_"
 	++ atom_to_list(Case)
 	++ "_"
-	++ integer_to_list(N).
+	++ integer_to_list(N) ++ Hostname.
+
 
 setup_certs(Config) ->
     PrivDir = proplists:get_value(priv_dir, Config),

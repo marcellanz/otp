@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2001-2018. All Rights Reserved.
+%% Copyright Ericsson AB 2001-2021. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -90,8 +90,8 @@ basic(Config) when is_list(Config) ->
     "abc123" = alphanum("?abc123.;"),
 
     %% Aliased patterns.
-    [] = [t || {C=D}={_,_} <- []],
-    [] = [X || {X,{Y}={X,X}} <- []],
+    [] = [t || {_C=_D}={_,_} <- []],
+    [] = [X || {X,{_Y}={X,X}} <- []],
     [t] = [t || "a"++"b" = "ab" <- ["ab"]],
 
     %% Strange filter block.

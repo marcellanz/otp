@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2007-2020 All Rights Reserved.
+%% Copyright Ericsson AB 2007-2022 All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -19,7 +19,7 @@
 %%
 
 %%----------------------------------------------------------------------
-%% Purpose: Help funtions for handling certificat verification.
+%% Purpose: Help functions for handling certificate verification.
 %% The path validation defined in ssl_handshake.erl that mainly
 %% calls functions in this module is described in RFC 3280. 
 %% The basic verification checks are done by
@@ -27,7 +27,7 @@
 %%
 %% TLS code handles construction of alternative certificate paths
 %% that can be used as input to public_key:pkix_path_validation/3
-%% to try and find one path that is considerd valid.
+%% to try and find one path that is considered valid.
 %%
 %% The TLS protocol will send certificate chains that should consist
 %% of [PeerCert, CA0 ... CAN, ROOTCert]. The path will be the reverse of the
@@ -79,7 +79,10 @@
          extensions_list/1,
          public_key_type/1,
          foldl_db/3,
-         find_cross_sign_root_paths/4
+         find_cross_sign_root_paths/4,
+         handle_cert_auths/4,
+         available_cert_key_pairs/1,
+         available_cert_key_pairs/2
 	]).
 
 %%====================================================================
@@ -127,13 +130,13 @@ trusted_cert_and_paths(Chain0,  CertDbHandle, CertDbRef, PartialChainHandler) ->
                       end
               end, Paths).
 %%--------------------------------------------------------------------
--spec certificate_chain(undefined | binary() | #'OTPCertificate'{} , db_handle(),
+-spec certificate_chain([] | binary() | #'OTPCertificate'{} , db_handle(),
                         certdb_ref() | {extracted, list()}) ->
           {error, no_cert} | {ok, der_cert() | undefined, [der_cert()]}.
 %%
 %% Description: Return the certificate chain to send to peer.
 %%--------------------------------------------------------------------
-certificate_chain(undefined, _, _) ->
+certificate_chain([], _, _) ->
     {error, no_cert};
 certificate_chain(DerCert, CertDbHandle, CertsDbRef) when is_binary(DerCert) ->
     ErlCert = public_key:pkix_decode_cert(DerCert, otp),
@@ -150,8 +153,14 @@ certificate_chain(#cert{} = Cert, CertDbHandle, CertsDbRef) ->
     chain_result(Root, Chain, encoded).
 %%--------------------------------------------------------------------
 -spec certificate_chain(binary() | #'OTPCertificate'{} , db_handle(), certdb_ref() | 
-                        {extracted, list()}, [der_cert()], encoded | decoded) ->
-          {ok, der_cert() | #'OTPCertificate'{}  | undefined, [der_cert() |  #'OTPCertificate'{}]}.
+                        {extracted, list()}, [der_cert()], encoded | decoded | both) ->
+          {ok,
+           der_cert() | #'OTPCertificate'{} | undefined,
+           [der_cert() |  #'OTPCertificate'{}]} |
+          {ok,
+           {der_cert() | undefined,  [der_cert()]},
+           {#'OTPCertificate'{} | undefined, [#'OTPCertificate'{}]}
+          }.
 %%
 %% Description: Create certificate chain with certs from Candidates
 %%--------------------------------------------------------------------
@@ -299,6 +308,61 @@ find_cross_sign_root_paths([_ | Rest] = Path, CertDbHandle, CertDbRef, Invalidat
             [{Root, Path}]
     end.
 
+handle_cert_auths(Chain, [], _, _) ->
+    %% If we have no authorities extension (or corresponding
+    %% 'certificate_authorities' in the certificate request message in
+    %% TLS-1.2 is empty) to check we just accept first choice.
+    {ok, Chain};
+handle_cert_auths([Cert], CertAuths, CertDbHandle, CertDbRef) ->
+    case certificate_chain(Cert, CertDbHandle, CertDbRef, [], both) of
+        {ok, {_, [Cert | _] = EChain}, {_, [_ | DCerts]}}  ->
+            case cert_auth_member(cert_issuers(DCerts), CertAuths) of
+                true ->
+                    {ok, EChain};
+                false ->
+                    {error, EChain, not_in_auth_domain}
+            end;
+        _ ->
+            {ok, [Cert]}
+    end;
+handle_cert_auths([_ | Certs] = EChain, CertAuths, _, _) ->
+    case cert_auth_member(cert_issuers(Certs), CertAuths) of
+        true ->
+            {ok, EChain};
+        false ->
+            {error, EChain, not_in_auth_domain}
+    end.
+
+available_cert_key_pairs(CertKeyGroups) ->
+    %% To be able to find possible TLS session pre TLS-1.3
+    %% that may be reused. At this point the version is
+    %% not negotiated.
+    RevAlgos = [dsa, rsa, rsa_pss_pss, ecdsa],
+    cert_key_group_to_list(RevAlgos, CertKeyGroups, []).
+
+%% Create the prioritized list of cert key pairs that
+%% are availble for use in the negotiated version
+available_cert_key_pairs(CertKeyGroups, {3, 4}) ->
+    RevAlgos = [rsa, rsa_pss_pss, ecdsa, eddsa],
+    cert_key_group_to_list(RevAlgos, CertKeyGroups, []);
+available_cert_key_pairs(CertKeyGroups, {3, 3}) ->
+     RevAlgos = [dsa, rsa, rsa_pss_pss, ecdsa],
+    cert_key_group_to_list(RevAlgos, CertKeyGroups, []);
+available_cert_key_pairs(CertKeyGroups, {3, N}) when N < 3->
+    RevAlgos = [dsa, rsa, ecdsa],
+    cert_key_group_to_list(RevAlgos, CertKeyGroups, []).
+
+cert_key_group_to_list([], _, Acc) ->
+    final_group_list(Acc);
+cert_key_group_to_list([Algo| Rest], CertKeyGroups, Acc) ->
+    CertKeyPairs = maps:get(Algo, CertKeyGroups, []),
+    cert_key_group_to_list(Rest, CertKeyGroups, CertKeyPairs ++ Acc).
+
+final_group_list([]) ->
+    [#{certs => [[]], private_key => #{}}];
+final_group_list(List) ->
+    List.
+
 %%--------------------------------------------------------------------
 %%% Internal functions
 %%--------------------------------------------------------------------
@@ -317,7 +381,11 @@ chain_result(Root0, Chain0, encoded) ->
     {ok, Root, Chain};
 chain_result(Root0, Chain0, decoded) ->
     {Root, Chain} = decoded_chain(Root0, Chain0),
-    {ok, Root, Chain}.
+    {ok, Root, Chain};
+chain_result(Root0, Chain0, both) ->
+    {ERoot, EChain} = encoded_chain(Root0, Chain0),
+    {DRoot, DChain} = decoded_chain(Root0, Chain0),
+    {ok, {ERoot, EChain}, {DRoot, DChain}}.
 
 build_certificate_chain(#cert{otp=OtpCert}=Cert, CertDbHandle, CertsDbRef, Chain, ListDb) ->
     IssuerAndSelfSigned = 
@@ -351,7 +419,7 @@ do_certificate_chain(_, _, [RootCert | _] = Chain, _, _, true, _) ->
 
 do_certificate_chain(CertDbHandle, CertsDbRef, Chain, SerialNr, Issuer, _, ListDb) ->
     case ssl_manager:lookup_trusted_cert(CertDbHandle, CertsDbRef,
-						SerialNr, Issuer) of
+                                         SerialNr, Issuer) of
 	{ok, Cert} ->
 	    build_certificate_chain(Cert, CertDbHandle, CertsDbRef, [Cert | Chain], ListDb);
 	_ ->
@@ -516,7 +584,7 @@ verify_cert_extensions(Cert, #{ocsp_responder_certs := ResponderCerts,
             {fail, Status}
     end;
 verify_cert_extensions(Cert, UserState, [_|Exts], Context) ->
-    %% Skip unknow extensions!
+    %% Skip unknown extensions!
     verify_cert_extensions(Cert, UserState, Exts, Context).
 
 verify_sign(_, #{version := {_, Minor}}) when Minor < 3 ->
@@ -530,8 +598,8 @@ verify_sign(Cert, #{version := {3, 3},
                     signature_algs_cert := SignAlgs}) ->
     is_supported_signature_algorithm_1_2(Cert, SignAlgs);
 verify_sign(Cert, #{version := {3, 4},
-                     signature_algs := SignAlgs,
-                     signature_algs_cert := undefined}) ->
+                    signature_algs := SignAlgs,
+                    signature_algs_cert := undefined}) ->
     is_supported_signature_algorithm_1_3(Cert, SignAlgs);
 verify_sign(Cert, #{version := {3, 4},
                     signature_algs_cert := SignAlgs}) ->
@@ -570,7 +638,7 @@ paths([Root], _, _, Path) ->
 paths([#cert{otp=C1}=Cert1, #cert{otp=C2}=Cert2 | Rest], Chain, CertDbHandle, Path) ->
     case public_key:pkix_is_issuer(C1, C2) of
         true ->
-            %% Chain orded so far
+            %% Chain ordered so far
             paths([Cert2 | Rest], Chain, CertDbHandle, [Cert1 | Path]);
         false ->
             %% Chain is unorded and/or contains extraneous certificates
@@ -632,22 +700,22 @@ maybe_shorten_path(Path, PartialChainHandler, Default) ->
     %% certificate path to be validated with
     %% public_key:pkix_path_validation by letting
     %% the user put its trust in an intermidate cert
-    %% from the certifcate chain sent by the peer.
+    %% from the certificate chain sent by the peer.
     DerCerts = [Der || #cert{der=Der} <- Path],
     try PartialChainHandler(DerCerts) of
         {trusted_ca, Root} ->
-            new_trusteded_path(Root, Path, Default);
+            new_trusted_path(Root, Path, Default);
         unknown_ca ->
             Default
     catch _:_ ->
             Default
     end.
 
-new_trusteded_path(DerCert, [#cert{der=DerCert}=Cert | Chain], _) ->
-    {Cert, Chain};
-new_trusteded_path(DerCert, [_ | Rest], Default) ->
-    new_trusteded_path(DerCert, Rest, Default);
-new_trusteded_path(_, [], Default) ->
+new_trusted_path(DerCert, [#cert{der=DerCert}=Cert | Path], _) ->
+    {Cert, Path};
+new_trusted_path(DerCert, [_ | Rest], Default) ->
+    new_trusted_path(DerCert, Rest, Default);
+new_trusted_path(_, [], Default) ->
     %% User did not pick a cert present 
     %% in the cert chain so ignore
     Default.
@@ -698,7 +766,7 @@ build_candidates([H|T], Map, Duplicates, Combinations, Max, Acc0) ->
 		_Else ->
 		    Acc = [[Cert|L] || Cert <- Certs, L <- Acc0],
 		    build_candidates(T, Map, Duplicates - 1, Combinations * Counter, Max, Acc)
-		end;
+            end;
 	{[Cert|_Throw], _Counter} ->
 	    case Acc0 of
 		[] ->
@@ -727,3 +795,29 @@ subject(Cert) ->
     {_Serial,Subject} = public_key:pkix_subject_id(Cert),
     Subject.
 
+issuer(Cert) ->
+    case public_key:pkix_is_self_signed(Cert) of
+        true ->
+            subject(Cert);
+        false ->
+            case is_binary(Cert) of
+                true ->
+                    #'OTPCertificate'{tbsCertificate = TBSCert} = public_key:pkix_decode_cert(Cert, otp),
+                    public_key:pkix_normalize_name(TBSCert#'OTPTBSCertificate'.issuer);
+                false ->
+                    #'OTPCertificate'{tbsCertificate = TBSCert} = Cert,
+                    public_key:pkix_normalize_name(TBSCert#'OTPTBSCertificate'.issuer)
+            end
+    end.
+
+cert_issuers([], Acc) ->
+    Acc;
+cert_issuers([Cert | Rest], Acc) ->
+    cert_issuers(Rest, [issuer(Cert) | Acc]).
+
+cert_issuers(OTPCerts) ->
+    cert_issuers(OTPCerts, []).
+
+cert_auth_member(ChainSubjects, CertAuths) ->
+    CommonAuthorities = sets:intersection(sets:from_list(ChainSubjects), sets:from_list(CertAuths)),
+    not sets:is_empty(CommonAuthorities).

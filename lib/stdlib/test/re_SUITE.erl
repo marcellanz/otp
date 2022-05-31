@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2008-2020. All Rights Reserved.
+%% Copyright Ericsson AB 2008-2022. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -162,7 +162,7 @@ run_options(Config) when is_list(Config) ->
     {match,["ABCabcdABC","abcd"]} = re:run("ABCabcdABC",MP,[{capture,all,list}]),
     {match,[<<"ABCabcdABC">>,<<"abcd">>]} = re:run("ABCabcdABC",MP,[{capture,all,binary}]),
     {match,[{0,10}]} = re:run("ABCabcdABC",MP,[{capture,first}]),
-    {match,[{0,10}]} = re:run("ABCabcdABC",MP,[{capture,first,index}]),       ?line {match,["ABCabcdABC"]} = re:run("ABCabcdABC",MP,[{capture,first,list}]),
+    {match,[{0,10}]} = re:run("ABCabcdABC",MP,[{capture,first,index}]),       {match,["ABCabcdABC"]} = re:run("ABCabcdABC",MP,[{capture,first,list}]),
     {match,[<<"ABCabcdABC">>]} = re:run("ABCabcdABC",MP,[{capture,first,binary}]),
 
     {match,[{3,4}]} = re:run("ABCabcdABC",MP,[{capture,all_but_first}]),
@@ -1003,7 +1003,10 @@ bad_utf8_subject(Config) when is_list(Config) ->
 
 error_info(_Config) ->
     BadRegexp = {re_pattern,0,0,0,<<"xyz">>},
+    BadErr = "neither an iodata term",
     {ok,GoodRegexp} = re:compile(".*"),
+    InvalidRegexp = <<"(.*))">>,
+    InvalidErr = "could not parse regular expression\n.*unmatched parentheses.*",
 
     L = [{compile, [not_iodata]},
          {compile, [not_iodata, not_list],[{1,".*"},{2,".*"}]},
@@ -1021,28 +1024,35 @@ error_info(_Config) ->
          {internal_run, 4},                     %Internal.
 
          {replace, [{a,b}, {x,y}, {z,z}],[{1,".*"},{2,".*"},{3,".*"}]},
-         {replace, [{a,b}, BadRegexp, {z,z}],[{1,".*"},{2,".*"},{3,".*"}]},
+         {replace, [{a,b}, BadRegexp, {z,z}],[{1,".*"},{2,BadErr},{3,".*"}]},
+         {replace, [{a,b}, InvalidRegexp, {z,z}],[{1,".*"},{2,InvalidErr},{3,".*"}]},
 
          {replace, [{a,b}, {x,y}, {z,z}, [a|b]],[{1,".*"},{2,".*"},{3,".*"},{4,".*"}]},
-         {replace, [{a,b}, BadRegexp, [bad_option]],[{1,".*"},{2,".*"},{3,".*"}]},
+         {replace, [{a,b}, BadRegexp, [bad_option]],[{1,".*"},{2,BadErr},{3,".*"}]},
+         {replace, [{a,b}, InvalidRegexp, [bad_option]],[{1,".*"},{2,InvalidErr},{3,".*"}]},
          {replace, ["", "", {z,z}, not_a_list],[{3,".*"},{4,".*"}]},
 
          {run, [{a,b}, {x,y}],[{1,".*"},{2,".*"}]},
          {run, [{a,b}, ".*"]},
          {run, ["abc", {x,y}]},
-         {run, ["abc", BadRegexp]},
+         {run, ["abc", BadRegexp],[{2,BadErr}]},
+         {run, ["abc", InvalidRegexp],[{2,InvalidErr}]},
 
          {run, [{a,b}, {x,y}, []],[{1,".*"},{2,".*"}]},
-         {run, ["abc", BadRegexp, []]},
+         {run, ["abc", BadRegexp, []],[{2,BadErr}]},
+         {run, ["abc", InvalidRegexp, []],[{2,InvalidErr}]},
          {run, [{a,b}, {x,y}, [a|b]],[{1,".*"},{2,".*"},{3,".*"}]},
          {run, [{a,b}, ".*", bad_options],[{1,".*"},{3,".*"}]},
          {run, ["abc", {x,y}, [bad_option]],[{2,".*"},{3,".*"}]},
-         {run, ["abc", BadRegexp, 9999],[{2,".*"},{3,".*"}]},
+         {run, ["abc", BadRegexp, 9999],[{2,BadErr},{3,".*"}]},
+         {run, ["abc", InvalidRegexp, 9999],[{2,InvalidErr},{3,".*"}]},
 
-         {split, ["abc", BadRegexp]},
+         {split, ["abc", BadRegexp],[{2,BadErr}]},
+         {split, ["abc", InvalidRegexp],[{2,InvalidErr}]},
          {split, [{a,b}, ".*"]},
 
-         {split, ["abc", BadRegexp, [a|b]],[{2,".*"},{3,".*"}]},
+         {split, ["abc", BadRegexp, [a|b]],[{2,BadErr},{3,".*"}]},
+         {split, ["abc", InvalidRegexp, [a|b]],[{2,InvalidErr},{3,".*"}]},
          {split, [{a,b}, ".*", [bad_option]]},
 
          {ucompile, 2},                         %Internal.

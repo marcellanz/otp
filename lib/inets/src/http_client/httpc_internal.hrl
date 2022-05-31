@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2005-2018. All Rights Reserved.
+%% Copyright Ericsson AB 2005-2021. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -107,7 +107,7 @@
 	  content,       % {ContentType, Body} - Current HTTP request
 	  settings      :: http_options(), % User defined settings
 	  abs_uri,       % string() ex: "http://www.erlang.org"
-	  userinfo,      % string() - optinal "<userinfo>@<host>:<port>"
+	  userinfo,      % string() - optional "<userinfo>@<host>:<port>"
 	  stream,	 % boolean() - stream async reply?
 	  headers_as_is, % boolean() - workaround for servers that does
 			 % not honor the http standard, can also be used 

@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2001-2020. All Rights Reserved.
+%% Copyright Ericsson AB 2001-2022. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -198,10 +198,16 @@ end_per_testcase(_Func, Config) ->
 %% Test runners
 %%------------------------------------------------------------------------------
 
+have_jsonlib() ->
+    case code:which(jsx) of
+        non_existing -> false;
+    _ -> true
+    end.
+
 test(Config, TestF) ->
-    TestJer = case code:which(jsx) of
-                  non_existing -> [];
-                  _ -> [jer]
+    TestJer = case have_jsonlib() of
+                  true -> [jer];
+                  false -> []
               end,
     test(Config, TestF, [per,
                          uper,
@@ -424,11 +430,21 @@ testExtensionDefault(Config, Rule, Opts) ->
     testExtensionDefault:main(Rule).
 
 testMaps(Config) ->
-    test(Config, fun testMaps/3,
+    Jer = case have_jsonlib() of
+        true -> [{jer,[maps,no_ok_wrapper]}];
+        false -> []
+    end,
+    RulesAndOptions = 
          [{ber,[maps,no_ok_wrapper]},
           {ber,[maps,der,no_ok_wrapper]},
           {per,[maps,no_ok_wrapper]},
-          {uper,[maps,no_ok_wrapper]}]).
+          {uper,[maps,no_ok_wrapper]}] ++ Jer,
+    test(Config, fun testMaps/3, RulesAndOptions),
+    case Jer of
+        [] -> {comment,"skipped JER"};
+        _ -> ok
+    end.
+
 testMaps(Config, Rule, Opts) ->
     asn1_test_lib:compile_all(['Maps'], Config, [Rule|Opts]),
     testMaps:main(Rule).
@@ -715,18 +731,17 @@ ber_decode_error(Config, Rule, Opts) ->
     ber_decode_error:run(Opts).
 
 otp_14440(_Config) ->
-    Args = " -pa \"" ++ filename:dirname(code:which(?MODULE)) ++ "\"",
-    {ok,N} = slave:start(hostname(), otp_14440, Args),
+    {ok, Peer, N} = ?CT_PEER(),
     Result = rpc:call(N, ?MODULE, otp_14440_decode, []),
     io:format("Decode result = ~p~n", [Result]),
+    peer:stop(Peer),
     case Result of
         {exit,{error,{asn1,{invalid_value,5}}}} ->
-            ok = slave:stop(N);
+            ok;
         %% We get this if stack depth limit kicks in:
         {exit,{error,{asn1,{unknown,_}}}} ->
-            ok = slave:stop(N);
+            ok;
         _ ->
-            _ = slave:stop(N),
             ct:fail(Result)
     end.
 %%
@@ -1395,11 +1410,3 @@ all_called_1([F|T]) when is_atom(F) ->
     L ++ all_called_1(T);
 all_called_1([]) ->
     [].
-
-hostname() ->
-    hostname(atom_to_list(node())).
-
-hostname([$@ | Hostname]) ->
-    list_to_atom(Hostname);
-hostname([_C | Cs]) ->
-    hostname(Cs).

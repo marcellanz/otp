@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 2000-2019. All Rights Reserved.
+%% Copyright Ericsson AB 2000-2022. All Rights Reserved.
 %% 
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -28,7 +28,7 @@
 
 -export([open/3, open/4, fdopen/4, fdopen/5, close/1]).
 -export([bind/3, listen/1, listen/2, peeloff/2]).
--export([connect/3, connect/4, async_connect/4]).
+-export([connect/3, connect/4, async_connect/4, connectx/2, connectx/3]).
 -export([accept/1, accept/2, accept/3, async_accept/2]).
 -export([shutdown/2]).
 -export([send/2, send/3, sendto/4, sendmsg/3, sendfile/4]).
@@ -61,6 +61,9 @@
 -else.
 -define(DBG_FORMAT(Format, Args), ok).
 -endif.
+
+%% -define(DBG(T), erlang:display({{self(), ?MODULE, ?LINE, ?FUNCTION_NAME}, T})).
+
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%
@@ -272,18 +275,36 @@ bind(S, add, Addrs) when is_port(S), is_list(Addrs) ->
     bindx(S, 1, Addrs);
 bind(S, remove, Addrs) when is_port(S), is_list(Addrs) ->
     bindx(S, 0, Addrs);
-bind(S, Addr, _) when is_port(S), tuple_size(Addr) =:= 2 ->
+bind(S, Addr, _)
+  when is_port(S) andalso is_map(Addr) ->
+    %% ?DBG([{s, S}, {addr, Addr}]),
+    do_bind(S, Addr);
+bind(S, Addr, _) when is_port(S) andalso (tuple_size(Addr) =:= 2) ->
+    %% ?DBG([{s, S}, {addr, Addr}]),
+    do_bind(S, Addr);
+bind(S, IP, Port) ->
+    %% ?DBG([{s, S}, {ip, IP}, {port, Port}]),
+    bind(S, {IP, Port}, 0).
+
+do_bind(S, Addr) ->
+    %% ?DBG([{s, S}, {addr, Addr}]),
     case type_value(set, addr, Addr) of
 	true ->
-	    case ctl_cmd(S,?INET_REQ_BIND,enc_value(set, addr, Addr)) of
-		{ok, [P1,P0]} -> {ok, ?u16(P1, P0)};
-		{error, _} = Error -> Error
+            %% ?DBG("issue bind command"),
+	    case ctl_cmd(S, ?INET_REQ_BIND, enc_value(set, addr, Addr)) of
+		{ok, [P1,P0]} ->
+                    BoundPort = ?u16(P1, P0),
+                    %% ?DBG(["bound", {port, BoundPort}]),
+                    {ok, BoundPort};
+		{error, _Reason} = Error ->
+                    %% ?DBG(["bind clommand failed", {reason, _Reason}]),
+                    Error
 	    end;
 	false ->
+            %% ?DBG("type check failed"),
 	    {error, einval}
-    end;
-bind(S, IP, Port) ->
-    bind(S, {IP, Port}, 0).
+    end.
+    
 
 bindx(S, AddFlag, Addrs) ->
     case getprotocol(S) of
@@ -311,7 +332,7 @@ bindx_check_addrs([Addr|Addrs]) ->
 bindx_check_addrs([]) ->
     true.
 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+ %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%
 %% CONNECT(insock(), IP, Port [,Timeout]) -> ok | {error, Reason}
 %%
@@ -330,6 +351,15 @@ bindx_check_addrs([]) ->
 %% For TCP, UDP or SCTP sockets.
 %%
 
+connect(S, SockAddr, Time) when is_map(SockAddr) ->
+    case type_value(set, addr, SockAddr) of
+	true when Time =:= infinity ->
+	    connect0(S, SockAddr, -1);
+	true when is_integer(Time) ->
+	    connect0(S, SockAddr, Time);
+	false ->
+	    {error, einval}
+    end;
 connect(S, IP, Port) ->
     connect(S, IP, Port, infinity).
 %%
@@ -356,7 +386,8 @@ connect0(S, Addr, Time) ->
     end.
 
 
-async_connect(S, Addr, _, Time) when is_port(S), tuple_size(Addr) =:= 2 ->
+async_connect(S, Addr, _, Time)
+  when is_port(S) andalso ((tuple_size(Addr) =:= 2) orelse is_map(Addr)) ->
     case type_value(set, addr, Addr) of
 	true when Time =:= infinity ->
 	    async_connect0(S, Addr, -1);
@@ -376,6 +407,41 @@ async_connect0(S, Addr, Time) ->
     of
 	{ok, [R1,R0]} -> {ok, S, ?u16(R1,R0)};
 	{error, _}=Error -> Error
+    end.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%
+%% CONNECTX(insock(), IPs, Port) -> {ok, AssocId} | {error, Reason}
+%% CONNECTX(insock(), SockAddrs) -> {ok, AssocId} | {error, Reason}
+%%
+%% For SCTP sockets only
+%%
+%% connect the insock() to the addresses given by IPs and Port or SockAddrs
+%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+connectx(S, IPs, Port) ->
+    connectx(S, {IPs, Port}).
+
+connectx(S, AddrList) ->
+    case type_value(set, addr_list, AddrList) of
+	true ->
+	    connectx0(S, AddrList);
+	false ->
+	    {error, einval}
+    end.
+
+
+connectx0(S, Addrs) ->
+    Args = [enc_time(-1),enc_value(set, addr_list, Addrs)],
+    case ctl_cmd(S, ?INET_REQ_CONNECT, Args) of
+	{ok, [R1,R0]} ->
+	    Ref = ?u16(R1,R0),
+	    receive
+		{inet_async, S, Ref, Status} ->
+		    Status
+	    end;
+	Error ->
+	    Error
     end.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -553,8 +619,18 @@ send(S, Data) ->
 %% "sendto" is for UDP. IP and Port are set by the caller to 0 if the socket
 %% is known to be connected.
 
+sendto(S, SockAddr, AncOpts, Data)
+  when is_port(S), is_map(SockAddr), is_list(AncOpts) ->
+    do_sendto(S, SockAddr, AncOpts, Data);
 sendto(S, {_, _} = Address, AncOpts, Data)
   when is_port(S), is_list(AncOpts) ->
+    do_sendto(S, Address, AncOpts, Data);
+sendto(S, IP, Port, Data)
+  when is_port(S), is_integer(Port) ->
+    sendto(S, {IP, Port}, [], Data).
+
+
+do_sendto(S, Address, AncOpts, Data) ->
     case encode_opt_val(AncOpts) of
         {ok, AncData} ->
             AncDataLen = iolist_size(AncData),
@@ -592,10 +668,8 @@ sendto(S, {_, _} = Address, AncOpts, Data)
             ?DBG_FORMAT(
                "prim_inet:sendto() -> {error,einval}~n", []),
             {error,einval}
-    end;                        
-sendto(S, IP, Port, Data)
-  when is_port(S), is_integer(Port) ->
-    sendto(S, {IP, Port}, [], Data).
+    end.
+    
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%
@@ -1566,7 +1640,7 @@ dec_opt(I) when is_integer(I)     -> undefined.
 %% The use of [] and [[Type,Default]] is commented out in enc_value/2
 %% and type_value/2 below since they are only used in record fields.
 %% And record fields does not call enc_value/2 nor type_value/2.
-%% Anyone introducing these metatypes otherwhere will have to activate
+%% Anyone introducing these metatypes elsewhere will have to activate
 %% those clauses in enc_value/2 and type_value/2. You have been warned!
 
 type_opt(get, raw) -> [{[int],[int],[binary_or_uint]}];
@@ -1867,6 +1941,20 @@ type_value_2(addr, {inet,{{A,B,C,D},Port}})
 type_value_2(addr, {inet6,{{A,B,C,D,E,F,G,H},Port}})
   when ?ip6(A,B,C,D,E,F,G,H) ->
     type_value_2(uint16, Port);
+type_value_2(addr, #{family := inet,
+                     addr   := Addr,
+                     port   := Port}) ->
+    (Addr =:= any orelse
+     Addr =:= loopback orelse
+     ?ip(Addr))
+        andalso type_value_2(uint16, Port);
+type_value_2(addr, #{family := inet6,
+                     addr   := Addr,
+                     port   := Port}) ->
+    (Addr =:= any orelse
+     Addr =:= loopback orelse
+     ?ip6(Addr))
+        andalso type_value_2(uint16, Port);
 type_value_2(addr, {local,Addr}) ->
     if
 	is_binary(Addr) ->
@@ -1887,6 +1975,16 @@ type_value_2(addr, {local,Addr}) ->
 		    false
 	    end
     end;
+type_value_2(addr_list, [_|_]=SockAddrs)
+  when length(SockAddrs) =< 255 ->
+    lists:all(fun(SockAddr) -> type_value_2(addr, SockAddr) end, SockAddrs);
+type_value_2(addr_list, {[_|_] = IPs, Port})
+  when length(IPs) =< 255 ->
+    lists:all(fun({A,B,C,D})         when ?ip(A,B,C,D)          -> true;
+                 ({A,B,C,D,E,F,G,H}) when ?ip6(A,B,C,D,E,F,G,H) -> true;
+                 (_) -> false
+              end, IPs)
+	andalso type_value_2(uint16, Port);
 %%
 type_value_2(ether,[X1,X2,X3,X4,X5,X6])
   when ?ether(X1,X2,X3,X4,X5,X6)                    -> true;
@@ -1993,8 +2091,8 @@ enc_value_2(uint8, Val)     -> ?int8(Val);
 enc_value_2(time, infinity) -> ?int32(-1);
 enc_value_2(time, Val)      -> ?int32(Val);
 enc_value_2(ip,{A,B,C,D})   -> [A,B,C,D];
-enc_value_2(ip, any)        -> [0,0,0,0];
-enc_value_2(ip, loopback)   -> [127,0,0,1];
+enc_value_2(ip, any)        -> ip4_any();
+enc_value_2(ip, loopback)   -> ip4_loopback();
 %%
 enc_value_2(addr, {any,Port}) ->
     [?INET_AF_ANY|?int16(Port)];
@@ -2003,22 +2101,24 @@ enc_value_2(addr, {loopback,Port}) ->
 enc_value_2(addr, {IP,Port}) when tuple_size(IP) =:= 4 ->
     [?INET_AF_INET,?int16(Port)|ip4_to_bytes(IP)];
 enc_value_2(addr, {IP,Port}) when tuple_size(IP) =:= 8 ->
-    [?INET_AF_INET6,?int16(Port)|ip6_to_bytes(IP)];
+    [?INET_AF_INET6,?int16(Port),ip6_to_bytes(IP),?int32(0),?int32(0)];
+enc_value_2(addr, #{family   := inet,
+                    addr     := IP,
+                    port     := Port}) ->
+    [?INET_AF_INET,?int16(Port)|ip4_to_bytes(IP)];
+enc_value_2(addr, #{family   := inet6,
+                    addr     := IP,
+                    port     := Port,
+                    flowinfo := FlowInfo,
+                    scope_id := ScopeID}) ->
+    [?INET_AF_INET6,?int16(Port),ip6_to_bytes(IP),?int32(FlowInfo),?int32(ScopeID)];
 enc_value_2(addr, {File,_}) when is_list(File); is_binary(File) ->
     [?INET_AF_LOCAL,iolist_size(File)|File];
 %%
-enc_value_2(addr, {inet,{any,Port}}) ->
-    [?INET_AF_INET,?int16(Port)|ip4_to_bytes({0,0,0,0})];
-enc_value_2(addr, {inet,{loopback,Port}}) ->
-    [?INET_AF_INET,?int16(Port)|ip4_to_bytes({127,0,0,1})];
 enc_value_2(addr, {inet,{IP,Port}}) ->
     [?INET_AF_INET,?int16(Port)|ip4_to_bytes(IP)];
-enc_value_2(addr, {inet6,{any,Port}}) ->
-    [?INET_AF_INET6,?int16(Port)|ip6_to_bytes({0,0,0,0,0,0,0,0})];
-enc_value_2(addr, {inet6,{loopback,Port}}) ->
-    [?INET_AF_INET6,?int16(Port)|ip6_to_bytes({0,0,0,0,0,0,0,1})];
 enc_value_2(addr, {inet6,{IP,Port}}) ->
-    [?INET_AF_INET6,?int16(Port)|ip6_to_bytes(IP)];
+    [?INET_AF_INET6,?int16(Port),ip6_to_bytes(IP),?int32(0),?int32(0)];
 enc_value_2(addr, {local,Addr}) ->
     %% A binary is passed as is, but anything else will be
     %% regarded as a filename and therefore encoded according to
@@ -2032,6 +2132,12 @@ enc_value_2(addr, {local,Addr}) ->
 		  Addr, file:native_name_encoding())
 	end,
     [?INET_AF_LOCAL,byte_size(Bin),Bin];
+enc_value_2(addr_list, {IPs, Port}) ->
+    [?INET_AF_LIST, length(IPs) |
+     [enc_value_2(addr, {IP, Port}) || IP <- IPs]];
+enc_value_2(addr_list, SockAddrs) ->
+    [?INET_AF_LIST, length(SockAddrs) |
+     [enc_value_2(addr, SockAddr) || SockAddr <- SockAddrs]];
 %%
 enc_value_2(ether, [_,_,_,_,_,_]=Xs) -> Xs;
 enc_value_2(sockaddr, any) ->
@@ -2066,7 +2172,7 @@ enc_value_2(binary_or_uint,Datum) when is_integer(Datum) ->
 
 
 %%
-%% Decoding of option VALUES receved from "getopt":
+%% Decoding of option VALUES received from "getopt":
 %% NOT required for SCTP, as it always returns ready terms, not lists:
 %%
 dec_value(bool, [0,0,0,0|T])       -> {false,T};
@@ -2459,7 +2565,7 @@ dec_subs([]) -> [].
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%
-%% handle statictics options
+%% handle statistics options
 %%
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -2672,12 +2778,37 @@ utf8_to_characters(Bs, U, 0) ->
 utf8_to_characters([B|Bs], U, N) when ((B band 16#3F) bor 16#80) =:= B ->
     utf8_to_characters(Bs, (U bsl 6) bor (B band 16#3F), N-1).
 
+ip4_to_bytes(any) ->
+    ip4_any();
+ip4_to_bytes(loopback) ->
+    ip4_loopback();
 ip4_to_bytes({A,B,C,D}) ->
     [A band 16#ff, B band 16#ff, C band 16#ff, D band 16#ff].
 
+ip4_any() -> [0,0,0,0].
+ip4_loopback() -> [127,0,0,1].
+    
+
+ip6_to_bytes(any) ->
+    ip6_any();
+ip6_to_bytes(loopback) ->
+    ip6_loopback();
 ip6_to_bytes({A,B,C,D,E,F,G,H}) ->
     [?int16(A), ?int16(B), ?int16(C), ?int16(D),
      ?int16(E), ?int16(F), ?int16(G), ?int16(H)].
+
+ip6_any() ->
+    Z1 = ?int16(0),
+    Z2 = [Z1, Z1],
+    Z3 = [Z2, Z2],
+    [Z3, Z3].
+
+ip6_loopback() ->
+    Z1 = ?int16(0),
+    Z2 = [Z1, Z1],
+    Z3 = [Z2, Z2],
+    [Z3, Z2, Z1, ?int16(1)].
+
 
 get_addrs([]) ->
     [];

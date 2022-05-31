@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1997-2020. All Rights Reserved.
+%% Copyright Ericsson AB 1997-2021. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -143,7 +143,7 @@
 					%% since log was opened if info/1
 					%% has not yet been used on this log.
 	 accFull  :: non_neg_integer()}	%% noFull+accFull is number of
-					%% oveflows since the log was opened.
+					%% overflows since the log was opened.
        ).
 
 -record(log,

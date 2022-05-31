@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 2018-2019. All Rights Reserved.
+%% Copyright Ericsson AB 2018-2022. All Rights Reserved.
 %% 
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -26,7 +26,7 @@
          await_finish/1
         ]).
 
-%% Functions used by evaluators to interact with eachother
+%% Functions used by evaluators to interact with each other
 -export([
          %% Announce functions
          %% (Send an announcement from one evaluator to another)
@@ -138,7 +138,7 @@ loop(ID, [#{desc := Desc,
             %% Secondary skip
             exit(E);
         C:{skip, R} = E:_ when ((C =:= throw) orelse (C =:= exit)) ->
-            ?SEV_IPRINT("command ~w skip catched(~w): "
+            ?SEV_IPRINT("command ~w skip caught(~w): "
                         "~n   Reason: ~p", [ID, C, R]),
             exit(E);
         C:E:S ->
@@ -166,7 +166,7 @@ await_finish([], _OK, Fails) ->
     Fails;
 await_finish(Evs, OK, Fails) ->
     receive
-        %% Successfull termination of evaluator
+        %% Successful termination of evaluator
         {'DOWN', _MRef, process, Pid, normal} ->
             {Evs2, OK2, Fails2} = await_finish_normal(Pid, Evs, OK, Fails),
             await_finish(Evs2, OK2, Fails2);
@@ -611,8 +611,8 @@ pi(Pid, Item) ->
     Info.
 
 check_down(Pid, DownReason, Pids) ->
-    case lists:keymember(Pid, 1, Pids) of
-        {value, {_, Name}} ->
+    case lists:keysearch(Pid, 2, Pids) of
+        {value, {Name, _}} ->
             eprint("Unexpected DOWN from ~w (~p): "
                    "~n   ~p", [Name, Pid, DownReason]),
             {error, {unexpected_exit, Name, DownReason}};

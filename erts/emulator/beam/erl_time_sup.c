@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 1999-2018. All Rights Reserved.
+ * Copyright Ericsson AB 1999-2022. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -216,6 +216,15 @@ update_last_mtime(ErtsSchedulerData *esdp, ErtsMonotonicTime mtime)
     if (!esdp)
 	esdp = erts_get_scheduler_data();
     if (esdp) {
+#if 1
+        if (mtime < esdp->last_monotonic_time)
+            erts_exit(ERTS_ABORT_EXIT,
+                      "Monotonic time stepped backwards!\n"
+                      "Previous time: %b64d\n"
+                      "Current time:  %b64d\n",
+                      esdp->last_monotonic_time,
+                      mtime);
+#endif
 	ASSERT(mtime >= esdp->last_monotonic_time);
 	esdp->last_monotonic_time = mtime;
 	esdp->check_time_reds = 0;
@@ -1396,17 +1405,10 @@ void
 get_time(int *hour, int *minute, int *second)
 {
     time_t the_clock;
-    struct tm *tm;
-#ifdef HAVE_LOCALTIME_R
-    struct tm tmbuf;
-#endif
-    
+    struct tm *tm, tmbuf;
+
     the_clock = time((time_t *)0);
-#ifdef HAVE_LOCALTIME_R
-    tm = localtime_r(&the_clock, &tmbuf);
-#else
-    tm = localtime(&the_clock);
-#endif
+    tm = sys_localtime_r(&the_clock, &tmbuf);
     *hour = tm->tm_hour;
     *minute = tm->tm_min;
     *second = tm->tm_sec;
@@ -1417,18 +1419,11 @@ void
 get_date(int *year, int *month, int *day)
 {
     time_t the_clock;
-    struct tm *tm;
-#ifdef HAVE_LOCALTIME_R
-    struct tm tmbuf;
-#endif
+    struct tm *tm, tmbuf;
 
 
     the_clock = time((time_t *)0);
-#ifdef HAVE_LOCALTIME_R
-    tm = localtime_r(&the_clock, &tmbuf);
-#else
-    tm = localtime(&the_clock);
-#endif
+    tm = sys_localtime_r(&the_clock, &tmbuf);
     *year = tm->tm_year + 1900;
     *month = tm->tm_mon +1;
     *day = tm->tm_mday;
@@ -1440,17 +1435,10 @@ get_localtime(int *year, int *month, int *day,
 	      int *hour, int *minute, int *second)
 {
     time_t the_clock;
-    struct tm *tm;
-#ifdef HAVE_LOCALTIME_R
-    struct tm tmbuf;
-#endif
+    struct tm *tm, tmbuf;
 
     the_clock = time((time_t *)0);
-#ifdef HAVE_LOCALTIME_R
-    localtime_r(&the_clock, (tm = &tmbuf));
-#else
-    tm = localtime(&the_clock);
-#endif
+    tm = sys_localtime_r(&the_clock, &tmbuf);
     *year = tm->tm_year + 1900;
     *month = tm->tm_mon +1;
     *day = tm->tm_mday;
@@ -1711,11 +1699,8 @@ univ_to_local(Sint *year, Sint *month, Sint *day,
 	      Sint *hour, Sint *minute, Sint *second)
 {
     time_t the_clock;
-    struct tm *tm;
-#ifdef HAVE_LOCALTIME_R
-    struct tm tmbuf;
-#endif
-    
+    struct tm *tm, tmbuf;
+
     if (!(IN_RANGE(BASEYEAR, *year, INT_MAX - 1) &&
           IN_RANGE(1, *month, 12) &&
           IN_RANGE(1, *day, (mdays[*month] + 
@@ -1727,7 +1712,7 @@ univ_to_local(Sint *year, Sint *month, Sint *day,
           IN_RANGE(0, *second, 59))) {
       return 0;
     }
-    
+
     the_clock = *second + 60 * (*minute + 60 * (*hour + 24 *
                                             gregday(*year, *month, *day)));
 #ifdef HAVE_POSIX2TIME
@@ -1745,11 +1730,8 @@ univ_to_local(Sint *year, Sint *month, Sint *day,
     the_clock = posix2time(the_clock);
 #endif
 
-#ifdef HAVE_LOCALTIME_R
-    tm = localtime_r(&the_clock, &tmbuf);
-#else
-    tm = localtime(&the_clock);
-#endif
+    tm = sys_localtime_r(&the_clock, &tmbuf);
+
     if (tm) {
 	*year   = tm->tm_year + 1900;
 	*month  = tm->tm_mon +1;
@@ -2009,12 +1991,10 @@ send_time_offset_changed_notifications(void *new_offsetp)
 
 	for (mix = 0; mix < no_monitors; mix++) {
             *patch_refp = to_mon_info[mix].ref;
-            erts_proc_sig_send_persistent_monitor_msg(ERTS_MON_TYPE_TIME_OFFSET,
-                                                      *patch_refp,
-                                                      am_clock_service,
-                                                      to_mon_info[mix].pid,
-                                                      message_template,
-                                                      hsz);
+            erts_proc_sig_send_monitor_time_offset_msg(*patch_refp,
+                                                       to_mon_info[mix].pid,
+                                                       message_template,
+                                                       hsz);
         }
 
 	erts_free(ERTS_ALC_T_TMP, tmp);
@@ -2361,7 +2341,7 @@ erts_napi_convert_time_unit(ErtsMonotonicTime val, int from, int to)
 {
     ErtsMonotonicTime ffreq, tfreq, denom;
     /*
-     * Convertion between time units using floor function.
+     * Conversion between time units using floor function.
      *
      * Note that this needs to work also for negative
      * values. Ordinary integer division on a negative
@@ -2461,7 +2441,7 @@ BIF_RETTYPE timestamp_0(BIF_ALIST_0)
 
     /*
      * Mega seconds is the only value that potentially
-     * ever could be a bignum. However, that wont happen
+     * ever could be a bignum. However, that won't happen
      * during at least the next 4 million years...
      *
      * (System time will also have wrapped in the

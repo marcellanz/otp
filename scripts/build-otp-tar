@@ -422,7 +422,7 @@ fi
 
 if [ "x$build_dir" != "x" ]; then
 
-    progress "Using already built OTP distibution in: $build_dir"
+    progress "Using already built OTP distribution in: $build_dir"
 
 else
 
@@ -468,16 +468,6 @@ else
     progress "Writing environment to build log"
     echo " === Environment ==================================== " >> $build_log
     env >> $build_log
-
-    progress "Running autoconf in OTP"
-    echo " " >> $build_log
-    echo " === Running autoconf in OTP ================================ " >> $build_log
-    echo " " >> $build_log
-    echo "./otp_build autoconf" >> $build_log
-    ./otp_build autoconf >> $build_log 2>&1
-    if [ $? -ne 0 ]; then
-	error "Failed to run autoconf in OTP"
-    fi
 
     progress "Configuring OTP"
     echo " " >> $build_log
@@ -551,7 +541,7 @@ if [ ! -d $src_dir -o ! -f $src_dir/otp_build ]; then
 fi
 
 progress "Checking target directory name"
-target_dirname=`$prebld_dir/erts/autoconf/config.guess`
+target_dirname=`$prebld_dir/make/autoconf/config.guess`
 if [  $? -ne 0 ]; then
     error "Failed to check target directory name"
 fi

@@ -1,7 +1,7 @@
 %% 
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1996-2020. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2022. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -321,12 +321,16 @@ handle_v3_message(Mgr, UdpId, Ip, UdpPort, AgentIp,
 
         catch
             throw:{error, Reason, B}:_ ->
-                udp_send(UdpId, AgentIp, UdpPort, B),
+                {_, Pid} = Mgr,
                 ?EPRINT("Decoding (v3) error - Auto-sending Report:"
-                        "~n   Reason: ~p"
-                        "~n   Port:   ~p"
-                        "~n   Ip:     ~p",
-                        [Reason, UdpPort, Ip]),
+                        "~n   Reason:    ~p"
+                        "~n   Port:      ~p"
+                        "~n   Ip:        ~p"
+                        "~n   (mgr) Pid: ~p",
+                        [Pid, Reason, UdpPort, Ip]),
+                udp_send(UdpId, AgentIp, UdpPort, B),
+                %% Can we be sure that this error is not expected?
+                Pid ! {error, Reason},
                 [];
 
             throw:{error, Reason}:_ ->
@@ -390,7 +394,7 @@ handle_v1_or_v2_message(Mgr, _UdpId, Ip, UdpPort, _AgentIp,
     end.
 
 
-%% This function assumes that the agent and the manager (thats us) 
+%% This function assumes that the agent and the manager (that's us) 
 %% has the same version.
 check_discovery_result('version-3', DiscoReqMsg, DiscoRspMsg) ->
     ReqMsgID = getMsgID(DiscoReqMsg),
@@ -772,7 +776,7 @@ ensure_dead_kill(Pid, MRef, Timeout) ->
 
 
 display_incomming_message(M) ->
-    display_message("Incomming",M).
+    display_message("Incoming",M).
 
 display_outgoing_message(M) ->
     display_message("Outgoing", M).

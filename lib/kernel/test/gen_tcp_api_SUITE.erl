@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 1998-2021. All Rights Reserved.
+%% Copyright Ericsson AB 1998-2022. All Rights Reserved.
 %% 
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -30,7 +30,7 @@
 -export([
 	 all/0, suite/0, groups/0,
 	 init_per_suite/1, end_per_suite/1, 
-	 init_per_group/2,end_per_group/2, 
+	 init_per_group/2, end_per_group/2, 
 	 init_per_testcase/2, end_per_testcase/2,
 
 	 t_connect_timeout/1, t_accept_timeout/1,
@@ -43,7 +43,12 @@
 	 t_local_fdopen_listen/1, t_local_fdopen_listen_unbound/1,
 	 t_local_fdopen_connect/1, t_local_fdopen_connect_unbound/1,
 	 t_local_abstract/1, t_accept_inet6_tclass/1,
-	 s_accept_with_explicit_socket_backend/1
+	 s_accept_with_explicit_socket_backend/1,
+
+         t_simple_local_sockaddr_in_send_recv/1,
+         t_simple_link_local_sockaddr_in_send_recv/1,
+         t_simple_local_sockaddr_in6_send_recv/1,
+         t_simple_link_local_sockaddr_in6_send_recv/1
 	]).
 
 -export([getsockfd/0, closesockfd/1]).
@@ -58,7 +63,7 @@ suite() ->
     ].
 
 all() ->
-    %% This is a temporary messure to ensure that we can 
+    %% This is a temporary measure to ensure that we can 
     %% test the socket backend without effecting *all*
     %% applications on *all* machines.
     %% This flag is set only for *one* host.
@@ -87,6 +92,7 @@ groups() ->
      {t_recv,               [], t_recv_cases()},
      {t_shutdown,           [], t_shutdown_cases()},
      {t_misc,               [], t_misc_cases()},
+     {sockaddr,             [], sockaddr_cases()},
      {t_local,              [], t_local_cases()},
      {s_misc,               [], s_misc_cases()}
     ].
@@ -139,7 +145,16 @@ t_misc_cases() ->
      t_fdopen,
      t_fdconnect,
      t_implicit_inet6,
-     t_accept_inet6_tclass
+     t_accept_inet6_tclass,
+     {group, sockaddr}
+    ].
+
+sockaddr_cases() ->
+    [
+     t_simple_local_sockaddr_in_send_recv,
+     t_simple_link_local_sockaddr_in_send_recv,
+     t_simple_local_sockaddr_in6_send_recv,
+     t_simple_link_local_sockaddr_in6_send_recv
     ].
 
 t_local_cases() ->
@@ -227,6 +242,13 @@ init_per_group(t_local = _GroupName, Config) ->
     catch
         _C:_E:_S ->
             {skip, "AF_LOCAL not supported"}
+    end;
+init_per_group(sockaddr = _GroupName, Config) ->
+    case is_socket_supported() of
+        ok ->
+            Config;
+        {skip, _} = SKIP ->
+            SKIP
     end;
 init_per_group(_GroupName, Config) ->
     Config.
@@ -399,9 +421,9 @@ do_recv_delim(Config) ->
     ok = gen_tcp:send(A, "abcXefgX"),
 
     ?P("await the first chunk"),
-    receive {tcp, Client, "abcX"} -> ?P("received first chunck") end,
+    receive {tcp, Client, "abcX"} -> ?P("received first chunk") end,
     ?P("await the second chunk"),
-    receive {tcp, Client, "efgX"} -> ?P("received second chunck") end,
+    receive {tcp, Client, "efgX"} -> ?P("received second chunk") end,
 
     ?P("cleanup"),
     ok = gen_tcp:close(Client),
@@ -412,25 +434,45 @@ do_recv_delim(Config) ->
 %%% gen_tcp:shutdown/2
 
 t_shutdown_write(Config) when is_list(Config) ->
+    ?P("create listen socket"),
     {ok, L} = gen_tcp:listen(0, ?INET_BACKEND_OPTS(Config)),
     {ok, Port} = inet:port(L),
-    {ok, Client} = gen_tcp:connect(localhost, Port,
-                                   ?INET_BACKEND_OPTS(Config) ++
-                                       [{active, false}]),
+    ?P("create connect socket (C)"),
+    {ok, C} = gen_tcp:connect(localhost, Port,
+                              ?INET_BACKEND_OPTS(Config) ++
+                                  [{active, false}]),
+    ?P("create accept socket (A)"),
     {ok, A} = gen_tcp:accept(L),
+    ?P("send message A -> C"),
+    ok = gen_tcp:send(A, "Hej Client"),
+    ?P("socket A shutdown(write)"),
     ok = gen_tcp:shutdown(A, write),
-    {error, closed} = gen_tcp:recv(Client, 0),
+    ?P("socket C recv - expect message"),
+    {ok, "Hej Client"} = gen_tcp:recv(C, 0),
+    ?P("socket C recv - expect closed"),
+    {error, closed} = gen_tcp:recv(C, 0),
+    ?P("done"),
     ok.
 
 t_shutdown_both(Config) when is_list(Config) ->
+    ?P("create listen socket"),
     {ok, L} = gen_tcp:listen(0, ?INET_BACKEND_OPTS(Config)),
     {ok, Port} = inet:port(L),
-    {ok, Client} = gen_tcp:connect(localhost, Port,
-                                   ?INET_BACKEND_OPTS(Config) ++
-                                       [{active, false}]),
+    ?P("create connect socket (C)"),
+    {ok, C} = gen_tcp:connect(localhost, Port,
+                              ?INET_BACKEND_OPTS(Config) ++
+                                  [{active, false}]),
+    ?P("create accept socket (A)"),
     {ok, A} = gen_tcp:accept(L),
+    ?P("send message A -> C"),
+    ok = gen_tcp:send(A, "Hej Client"),
+    ?P("socket A shutdown(read_write)"),
     ok = gen_tcp:shutdown(A, read_write),
-    {error, closed} = gen_tcp:recv(Client, 0),
+    ?P("socket C recv - expect message"),
+    {ok, "Hej Client"} = gen_tcp:recv(C, 0),
+    ?P("socket C recv - expect closed"),
+    {error, closed} = gen_tcp:recv(C, 0),
+    ?P("done"),
     ok.
 
 t_shutdown_error(Config) when is_list(Config) ->
@@ -571,37 +613,72 @@ do_t_fdconnect(Config) ->
             ?SKIPT("failed loading util nif lib")
     end,
     ?P("try create listen socket"),
-    L = case gen_tcp:listen(0,
-                            ?INET_BACKEND_OPTS(Config) ++ [{active, false}]) of
+    LOpts = ?INET_BACKEND_OPTS(Config) ++ [{active, false}],
+    L = try gen_tcp:listen(0, LOpts) of
             {ok, LSock} ->
                 LSock;
             {error, eaddrnotavail = LReason} ->
-                ?SKIPT(listen_failed_str(LReason))
+                ?SKIPT(listen_failed_str(LReason));
+            {error, LReason} ->
+                ?P("UNEXPECTED ERROR - listen error: "
+                   "~n      COpts:  ~p"
+                   "~n      Reason: ~p", [LReason]),
+                ct:fail({unexpected_listen_error, LReason, LOpts})
+        catch
+            LC : LE : LS ->
+                ?P("UNEXPECTED ERROR - caught listen: "
+                   "~n   LOpts: ~p"
+                   "~n   C:     ~p"
+                   "~n   E:     ~p"
+                   "~n   S:     ~p", [LOpts, LC, LE, LS]),
+                ct:fail({listen_failure, {LC, LE, LS}, LOpts})
         end,            
-    {ok, Port} = inet:port(L),
+    {ok, LPort} = inet:port(L),
     ?P("try create file descriptor"),
     FD = gen_tcp_api_SUITE:getsockfd(),
-    ?P("try connect using file descriptor ~w", [FD]),
-    Client = case gen_tcp:connect(localhost, Port,
-                                  ?INET_BACKEND_OPTS(Config) ++
-                                      [{fd,     FD},
-                                       {active, false}]) of
+    ?P("try connect (to port ~w) using file descriptor ~w", [LPort, FD]),
+    COpts = ?INET_BACKEND_OPTS(Config) ++ [{fd, FD}, {active, false}],
+    Client = try gen_tcp:connect(localhost, LPort, COpts) of
                  {ok, CSock} ->
                      CSock;
                  {error, eaddrnotavail = CReason} ->
                      gen_tcp:close(L),
                      gen_tcp_api_SUITE:closesockfd(FD),
-                     ?SKIPT(connect_failed_str(CReason))
+                     ?SKIPT(connect_failed_str(CReason));
+                 {error, CReason} ->
+                     ?P("UNEXPECTED ERROR - connect error: "
+                        "~n      COpts:  ~p"
+                        "~n      Reason: ~p", [COpts, CReason]),
+                     ct:fail({unexpected_connect_error, CReason, COpts})
+             catch
+                 CC : CE : CS ->
+                     ?P("UNEXPECTED ERROR - caught connect: "
+                        "~n   COpts: ~p"
+                        "~n   C:     ~p"
+                        "~n   E:     ~p"
+                        "~n   S:     ~p", [COpts, CC, CE, CS]),
+                     ct:fail({connect_failure, {CC, CE, CS}, COpts})
              end,                             
     ?P("try accept connection"),
-    Server = case gen_tcp:accept(L) of
+    Server = try gen_tcp:accept(L) of
                  {ok, ASock} ->
                      ASock;
                  {error, eaddrnotavail = AReason} ->
                      gen_tcp:close(Client),
                      gen_tcp:close(L),
                      gen_tcp_api_SUITE:closesockfd(FD),
-                     ?SKIPT(accept_failed_str(AReason))
+                     ?SKIPT(accept_failed_str(AReason));
+                 {error, AReason} ->
+                     ?P("UNEXPECTED ERROR - accept error: "
+                        "~n      Reason: ~p", [AReason]),
+                     ct:fail({unexpected_accept_error, AReason})
+             catch
+                 AC : AE : AS ->
+                     ?P("UNEXPECTED ERROR - caught accept: "
+                        "~n   C: ~p"
+                        "~n   E: ~p"
+                        "~n   S: ~p", [AC, AE, AS]),
+                     ct:fail({accept_failure, {AC, AE, AS}})
         end,                             
     ?P("begin validation"),
     ok = gen_tcp:send(Client, Question),
@@ -1069,35 +1146,233 @@ do_accept_inet6_tclass(Config) ->
     end.
 
 
+%% Here we use socket:sockaddr_in6() when creating and using the
+%% socket(s).
+%%
+t_simple_local_sockaddr_in6_send_recv(Config) when is_list(Config) ->
+    ?TC_TRY(?FUNCTION_NAME,
+            fun() -> ?LIB:has_support_ipv6() end,
+            fun() ->
+                    Domain = inet6,
+                    {ok, LocalAddr} = ?LIB:which_local_addr(Domain),
+                    SockAddr = #{family   => Domain,
+                                 addr     => LocalAddr,
+                                 port     => 0},
+                    do_simple_sockaddr_send_recv(SockAddr, Config)
+            end).
+
+
+t_simple_link_local_sockaddr_in6_send_recv(Config) when is_list(Config) ->
+    ?TC_TRY(?FUNCTION_NAME,
+            fun() ->
+                    ?LIB:has_support_ipv6(),
+                    is_net_supported()
+            end,
+            fun() ->
+                    Domain = inet6,
+                    LinkLocalAddr =
+                        case ?LIB:which_link_local_addr(Domain) of
+                            {ok, LLA} ->
+                                LLA;
+                            {error, _} ->
+                                skip("No link local address")
+                        end,
+                    Filter =
+                        fun(#{addr := #{family := D,
+                                        addr   := A}}) ->
+                                (D =:= Domain) andalso (A =:= LinkLocalAddr);
+                           (_) ->
+                                false
+                        end,
+                    case net:getifaddrs(Filter) of
+                        {ok, [#{addr := #{scope_id := ScopeID}}|_]} ->
+                            SockAddr = #{family   => Domain,
+                                         addr     => LinkLocalAddr,
+                                         port     => 0,
+                                         scope_id => ScopeID},
+                            do_simple_sockaddr_send_recv(SockAddr, Config);
+                        {ok, _} ->
+                            skip("Scope ID not found");
+                        {error, R} ->
+                            skip({failed_getifaddrs, R})
+                    end
+            end).
+
+
+%% Here we use socket:sockaddr_in() when creating and using the
+%% socket(s).
+%%
+t_simple_local_sockaddr_in_send_recv(Config) when is_list(Config) ->
+    ?TC_TRY(?FUNCTION_NAME,
+            fun() -> ok end,
+            fun() ->
+                    Domain = inet,
+                    {ok, LocalAddr} = ?LIB:which_local_addr(Domain),
+                    SockAddr = #{family   => Domain,
+                                 addr     => LocalAddr,
+                                 port     => 0},
+                    do_simple_sockaddr_send_recv(SockAddr, Config)
+            end).
+
+
+t_simple_link_local_sockaddr_in_send_recv(Config) when is_list(Config) ->
+    ?TC_TRY(?FUNCTION_NAME,
+            fun() -> ok end,
+            fun() ->
+                    Domain = inet,
+                    LinkLocalAddr =
+                        case ?LIB:which_link_local_addr(Domain) of
+                            {ok, LLA} ->
+                                LLA;
+                            {error, _} ->
+                                skip("No link local address")
+                        end,
+                    SockAddr = #{family => Domain,
+                                 addr   => LinkLocalAddr,
+                                 port   => 0},
+                    do_simple_sockaddr_send_recv(SockAddr, Config)
+            end).
+
+
+do_simple_sockaddr_send_recv(SockAddr, _) ->
+    %% Create the server
+    Self   = self(),
+    ?P("~n      SockAddr: ~p", [SockAddr]),
+    ServerF = fun() ->
+                      ?P("try create listen socket"),
+                      LSock =
+                          try gen_tcp:listen(0, [{ifaddr, SockAddr},
+                                                 {active, true},
+                                                 binary]) of
+                              {ok, LS} ->
+                                  LS;
+                              {error, LReason} ->
+                                  ?P("listen error: "
+                                     "~n      Reason: ~p", [LReason]),
+                                  exit({listen_error, LReason})
+                          catch
+                              LC:LE:LS ->
+                                  ?P("listen failure: "
+                                     "~n      Error Class: ~p"
+                                     "~n      Error:       ~p"
+                                     "~n      Call Stack:  ~p", [LC, LE, LS]),
+                                  exit({listen_failure, {LC, LE, LS}})
+                          end,
+                      ?P("try get listen port"),
+                      {ok, Port}  = inet:port(LSock),
+                      ?P("listen port: ~w", [Port]),
+                      Self ! {{port, Port}, self()},
+                      ?P("try accept"),
+                      {ok, ASock} = gen_tcp:accept(LSock),
+                      ?P("accepted: "
+                         "~n      ~p", [ASock]),
+                      receive
+                          {tcp, ASock, <<"hej">>} ->
+                              ?P("received expected message - send reply"),
+                              ok = gen_tcp:send(ASock, "hopp")
+                      end,
+                      ?P("await termination command"),
+                      receive
+                          {die, Self} ->
+                              ?P("terminating"),
+                              (catch gen_tcp:close(ASock)),
+                              (catch gen_tcp:close(LSock)),
+                              exit(normal)
+                      end
+              end,
+    ?P("try start server"),
+    Server = spawn_link(ServerF),
+    ?P("server started - await port "),
+    ServerPort = receive
+                     {{port, Port}, Server} ->
+                         Port;
+                     {'EXIT', Server, Reason} ->
+                         ?P("server died unexpectedly: "
+                            "~n      ~p", [Reason]),
+                         exit({unexpected_listen_failure, Reason})
+                 end,
+    ?P("server port received: ~p", [ServerPort]),
+    
+    ?P("try connect to server"),
+    ServerSockAddr = SockAddr#{port => ServerPort},
+    {ok, CSock} = gen_tcp:connect(ServerSockAddr,
+                                  [{ifaddr, SockAddr},
+                                   {active, true},
+                                   binary]),
+    ?P("connected to server: "
+       "~n      CSock: ~p"
+       "~n      CPort: ~p", [CSock, inet:port(CSock)]),
+
+    ?P("try send message"),
+    ok = gen_tcp:send(CSock, "hej"),
+    
+    ?P("await reply message"),
+    receive
+        {tcp, CSock, <<"hopp">>} ->
+            ?P("received expected reply message")
+    end,
+
+    ?P("terminate server"),
+    Server ! {die, self()},
+
+    ?P("await server termination"),
+    receive
+        {'EXIT', Server, normal} ->
+            ok
+    end,
+    
+    ?P("cleanup"),
+    (catch gen_tcp:close(CSock)),
+
+    ?P("done"),
+    ok.
+
+    
 %% On MacOS (maybe more), accepting a connection resulted in a crash.
 %% Note that since 'socket' currently does not work on windows
 %% we have to skip on that platform.
 s_accept_with_explicit_socket_backend(Config) when is_list(Config) ->
     ?TC_TRY(s_accept_with_explicit_socket_backend,
-            fun() -> is_not_windows() end,
+            fun() -> is_socket_supported() end,
             fun() -> do_s_accept_with_explicit_socket_backend() end).
 
 do_s_accept_with_explicit_socket_backend() ->
+    ?P("try create listen socket"),
     {ok, S}         = gen_tcp:listen(0, [{inet_backend, socket}]),
+    ?P("try get port number (via sockname)"),
     {ok, {_, Port}} = inet:sockname(S),
     ClientF = fun() ->
+                      ?P("[client] try connect (tp ~p)", [Port]),
 		      {ok, _} = gen_tcp:connect("localhost", Port, []),
-		      receive die -> exit(normal) after infinity -> ok end
+                      ?P("[client] connected - wait for termination command"),
+		      receive
+                          die ->
+                              ?P("[client] termination command received"),
+                              exit(normal)
+                      after infinity -> ok
+                      end
 	      end,
+    ?P("create client"),
     Client = spawn_link(ClientF),
+    ?P("try accept"),
     {ok, _} = gen_tcp:accept(S),
+    ?P("accepted - command client to terminate"),
     Client ! die,
+    ?P("done"),
     ok.
 
 
 %%% Utilities
 
-is_not_windows() ->
-    case os:type() of
-        {win32, _} ->
-            {skip, "Windows not supported"};
-        _ ->
+is_socket_supported() ->
+    try socket:info() of
+	_ ->
             ok
+    catch
+        error : notsup ->
+            {skip, "esock not supported"};
+        error : undef ->
+            {skip, "esock not configured"}
     end.
 
 
@@ -1223,6 +1498,27 @@ delete_local_filenames() ->
 		filelib:wildcard(
 		  "/tmp/" ?MODULE_STRING "_" ++ os:getpid() ++ "_*")],
     ok.
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+is_net_supported() ->
+    try net:info() of
+        #{} ->
+            ok
+    catch
+        error : notsup ->
+            not_supported(net)
+    end.
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+not_supported(What) ->
+    skip({not_supported, What}).
+
+skip(Reason) ->
+    throw({skip, Reason}).
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

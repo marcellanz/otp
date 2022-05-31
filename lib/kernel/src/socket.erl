@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2020-2021. All Rights Reserved.
+%% Copyright Ericsson AB 2020-2022. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -69,6 +69,8 @@
          sockname/1,
          peername/1,
 
+         ioctl/2, ioctl/3, ioctl/4,
+
          cancel/2
         ]).
 
@@ -102,6 +104,8 @@
               sockaddr_in6/0,
               sockaddr_un/0,
               sockaddr_ll/0,
+              sockaddr_dl/0,
+              sockaddr_unspec/0,
               sockaddr_native/0,
 
               msg_flag/0,
@@ -140,6 +144,9 @@
 
 	      info_keys/0
              ]).
+
+%% DUMMY
+-export_type([ioctl_device_flag/0, ioctl_device_map/0]).
 
 %% We need #file_descriptor{} for sendfile/2,3,4,5
 -include("file_int.hrl").
@@ -312,6 +319,13 @@
                        outgoing | loopback | user | kernel | fastroute |
                        non_neg_integer().
 
+-type hatype() :: netrom | eether | ether | ax25 | pronet | chaos |
+                  ieee802 | arcnet | appletlk | dlci | atm | metricom |
+                  ieee1394 | eui64 | infiniband |
+                  tunnel | tunnel6 | loopback | localtlk |
+                  none | void |
+                  non_neg_integer().
+
 -type sockaddr_un() ::
         #{family := 'local',
           path   := binary() | string()}.
@@ -331,8 +345,16 @@
           protocol := non_neg_integer(),
           ifindex  := integer(),
           pkttype  := packet_type(),
-          hatype   := non_neg_integer(),
+          hatype   := hatype(),
           addr     := binary()}.
+-type sockaddr_dl() ::
+        #{family   := 'link',
+          index    := non_neg_integer(),
+          type     := non_neg_integer(),
+          nlen     := non_neg_integer(),
+          alen     := non_neg_integer(),
+          slen     := non_neg_integer(),
+          data     := binary()}.
 -type sockaddr_unspec() ::
         #{family := 'unspec', addr := binary()}.
 -type sockaddr_native() ::
@@ -342,6 +364,7 @@
         sockaddr_in6()     |
         sockaddr_un()      |
         sockaddr_ll()      |
+        sockaddr_dl()      |
         sockaddr_unspec()  |
         sockaddr_native().
 
@@ -614,7 +637,7 @@
 %% Even if we are able to decode both level and type, we may not be
 %% able to decode the data.  The data is always delivered as a binary()
 %% and a decoded value is delivered in the 'value' field, if decoding
-%% is succesful.
+%% is successful.
 
 -type cmsg() :: cmsg_recv() | cmsg_send().
 
@@ -718,6 +741,31 @@
 		     ].
 
 
+%% Note that not all flags exist on all platforms!
+-type ioctl_device_flag() :: up | broadcast | debug | loopback | pointopoint |
+                             notrailers | knowsepoch | running | noarp | promisc | allmulti |
+                             master | oactive | slave | simplex |
+			     link0 | link1 | link2 |
+			     multicast | portsel | automedia |
+			     cantconfig | ppromisc |
+                             dynamic |
+			     monitor | staticarp | dying | renaming | nogroup |
+			     lower_up | dormant | echo.
+
+%% When reading the device map (gifmap), the resulting map will be 
+%% "fully" populated.
+%% <DOES-THIS-WORK>
+%% When writing, it is expected that only the fields that is
+%% to be set is present.
+%% </DOES-THIS-WORK>
+-type ioctl_device_map() :: #{mem_start := non_neg_integer(),
+                              mem_end   := non_neg_integer(),
+                              base_addr := non_neg_integer(),
+                              irq       := non_neg_integer(),
+                              dma       := non_neg_integer(),
+                              port      := non_neg_integer()}.
+
+
 %% ===========================================================================
 %%
 %% Interface term formats
@@ -776,7 +824,7 @@ number_of() ->
 %% *** which_sockets/0,1 ***
 %%
 %% Interface function to the socket registry
-%% Returns a list of all the sockets, accoring to the filter rule.
+%% Returns a list of all the sockets, according to the filter rule.
 %%
 
 -spec which_sockets() -> [socket()].
@@ -809,9 +857,9 @@ which_sockets(Proto)
        Proto =:= udp ->
     ?REGISTRY:which_sockets({protocol, Proto});
 
-which_sockets(CTRL)
-  when is_pid(CTRL) ->
-    ?REGISTRY:which_sockets({ctrl, CTRL});
+which_sockets(Owner)
+  when is_pid(Owner) ->
+    ?REGISTRY:which_sockets({owner, Owner});
 
 which_sockets(Filter) when is_function(Filter, 1) ->
     ?REGISTRY:which_sockets(Filter);
@@ -946,7 +994,7 @@ use_registry(D) when is_boolean(D) ->
 %%
 %% This produces a list of "all" the sockets, and some info about each one.
 %% This function is intended as a utility and debug function.
-%% The sockets can be selected from domain, type or porotocol.
+%% The sockets can be selected from domain, type or protocol.
 %% The sockets are not sorted.
 %% 
 %% ===========================================================================
@@ -1176,8 +1224,18 @@ fmt_port(N, Proto) ->
 -spec info() -> info().
 %%
 info() ->
-    prim_socket:info().
-
+    try
+        prim_socket:info()
+    catch error:undef:ST ->
+            case ST of
+                %% We rewrite errors coming from prim_socket not existing
+                %% to enotsup.
+                [{prim_socket,info,[],_}|_] ->
+                    erlang:raise(error,notsup,ST);
+                _ ->
+                    erlang:raise(error,undef,ST)
+            end
+    end.
 
 -spec info(Socket) -> socket_info() when
 					Socket :: socket().
@@ -1202,22 +1260,14 @@ info(Socket) ->
 -spec monitor(Socket) -> reference() when
       Socket :: socket().
 
-%% Should it be possible to specify a modification of the 'Socket' part
-%% of the DOWN-message? The point would be to make it possible for
-%% a gen_tcp_socket-socket to use this and get the proper 'socket'
-%% as part of the message.
-
 monitor(?socket(SockRef) = Socket) when is_reference(SockRef) ->
     case prim_socket:setopt(SockRef, {otp, use_registry}, true) of
         ok ->
-            case socket_registry:monitor(Socket) of
-		{error, MReason} ->
-		    erlang:error({invalid, MReason});
-		MRef when is_reference(MRef) ->
-		    MRef
-	    end;
-        {error, SReason} ->
-	    erlang:error({invalid, SReason})
+            socket_registry:monitor(Socket);
+        {error, closed = SReason} ->
+            MRef = make_ref(),
+            self() ! {'DOWN', MRef, socket, Socket, SReason},
+	    MRef
     end;
 monitor(Socket) ->
     erlang:error(badarg, [Socket]).
@@ -1255,7 +1305,7 @@ cancel_monitor(MRef) ->
 %%
 %% supports - get information about what the platform "supports".
 %%
-%% Generates a list of various info about what the plaform can support. 
+%% Generates a list of various info about what the platform can support. 
 %% The most obvious case is 'options'. 
 %%
 %% Each item in a 'supports'-list will appear only *one* time.
@@ -1268,7 +1318,8 @@ cancel_monitor(MRef) ->
                                                   boolean()}]}]}].
 supports() ->
     [{Key1, supports(Key1)}
-     || Key1 <- [options, msg_flags, protocols]]
+     || Key1 <- [ioctl_requests, ioctl_flags,
+                 options, msg_flags, protocols]]
         ++ prim_socket:supports().
 
 -spec supports(Key1 :: term()) ->
@@ -1315,7 +1366,7 @@ is_supported(options, Level, Opt) when is_atom(Level), is_atom(Opt) ->
 %% The nif sets up a monitor to this process, and if it dies the socket
 %% is closed. It is also used if someone wants to monitor the socket.
 %%
-%% We may therefor need monitor function(s): 
+%% We may therefore need monitor function(s): 
 %%
 %%               socket:monitor(Socket)
 %%               socket:demonitor(Socket)
@@ -3922,7 +3973,7 @@ setopt_native(Socket, SocketOption, Value) ->
 %% If its an "invalid" option, we should not crash but return some
 %% useful error...
 %%
-%% When specifying level as an integer, and therefor using "native mode",
+%% When specifying level as an integer, and therefore using "native mode",
 %% we should make it possible to specify common types instead of the
 %% value size. Example: int | bool | {string, pos_integer()} | non_neg_integer()
 %%
@@ -4026,6 +4077,174 @@ peername(?socket(SockRef))
     prim_socket:peername(SockRef);
 peername(Socket) ->
     erlang:error(badarg, [Socket]).
+
+
+
+%% ===========================================================================
+%%
+%% ioctl - control device - get requests
+%%
+%%
+
+-spec ioctl(Socket, GetRequest) -> {'ok', IFConf} | {'error', Reason} when
+      Socket     :: socket(),
+      GetRequest :: 'gifconf',
+      IFConf     :: [#{name := string, addr := sockaddr()}],
+      Reason     :: posix() | 'closed'.
+
+%% gifconf | {gifaddr, string()} | {gifindex, string()} | {gifname, integer()}
+ioctl(?socket(SockRef), gifconf = GetRequest) ->
+    prim_socket:ioctl(SockRef, GetRequest);
+ioctl(Socket, GetRequest) ->
+    erlang:error(badarg, [Socket, GetRequest]).
+
+%% -spec ioctl(Socket, GetRequest, Index) -> {'ok', Name} | {'error', Reason} when
+%%       Socket     :: socket(),
+%%       GetRequest :: 'gifname',
+%%       Index      :: integer(),
+%%       Name       :: string(),
+%%       Reason     :: posix() | 'closed';
+%%            (Socket, GetRequest, Name) -> {'ok', Index} | {'error', Reason} when
+%%       Socket     :: socket(),
+%%       GetRequest :: 'gifindex',
+%%       Name       :: string(),
+%%       Index      :: integer(),
+%%       Reason     :: posix() | 'closed';
+%%            (Socket, GetRequest, Name) -> {'ok', Addr} | {'error', Reason} when
+%%       Socket     :: socket(),
+%%       GetRequest :: 'gifaddr',
+%%       Name       :: string(),
+%%       Addr       :: sockaddr(),
+%%       Reason     :: posix() | 'closed';
+%%            (Socket, GetRequest, Name) -> {'ok', DestAddr} | {'error', Reason} when
+%%       Socket      :: socket(),
+%%       GetRequest  :: 'gifdstaddr',
+%%       Name        :: string(),
+%%       DestAddr    :: sockaddr(),
+%%       Reason      :: posix() | 'closed';
+%%            (Socket, GetRequest, Name) -> {'ok', BroadcastAddr} | {'error', Reason} when
+%%       Socket        :: socket(),
+%%       GetRequest    :: 'gifbrdaddr',
+%%       Name          :: string(),
+%%       BroadcastAddr :: sockaddr(),
+%%       Reason        :: posix() | 'closed';
+%%            (Socket, GetRequest, Name) -> {'ok', Netmask} | {'error', Reason} when
+%%       Socket     :: socket(),
+%%       GetRequest :: 'gifnetmask',
+%%       Name       :: string(),
+%%       Netmask    :: sockaddr(),
+%%       Reason     :: posix() | 'closed';
+%%            (Socket, GetRequest, Name) -> {'ok', HWAddr} | {'error', Reason} when
+%%       Socket     :: socket(),
+%%       GetRequest :: 'gifhwaddr',
+%%       Name       :: string(),
+%%       HWAddr     :: sockaddr(),
+%%       Reason     :: posix() | 'closed';
+%%            (Socket, GetRequest, Name) -> {'ok', MTU} | {'error', Reason} when
+%%       Socket     :: socket(),
+%%       GetRequest :: 'gifmtu',
+%%       Name       :: string(),
+%%       MTU        :: integer(),
+%%       Reason     :: posix() | 'closed';
+%%            (Socket, GetRequest, Name) -> {'ok', TransmitQLen} | {'error', Reason} when
+%%       Socket       :: socket(),
+%%       GetRequest   :: 'giftxqlen',
+%%       Name         :: string(),
+%%       TransmitQLen :: integer(),
+%%       Reason       :: posix() | 'closed';
+%%            (Socket, GetRequest, Name) -> {'ok', Flags} | {'error', Reason} when
+%%       Socket     :: socket(),
+%%       GetRequest :: 'gifflags',
+%%       Name       :: string(),
+%%       Flags      :: [ioctl_device_flag() | integer()],
+%%       Reason     :: posix() | 'closed';
+%%            (Socket, GetRequest, Name) -> {'ok', DevMap} | {'error', Reason} when
+%%       Socket     :: socket(),
+%%       GetRequest :: 'gifmap',
+%%       Name       :: string(),
+%%       DevMap     :: ioctl_device_map(),
+%%       Reason     :: posix() | 'closed'.
+
+-spec ioctl(Socket, GetRequest, NameOrIndex) -> {'ok', Result} | {'error', Reason} when
+      Socket      :: socket(),
+      GetRequest  :: 'gifname' | 'gifindex' |
+                     'gifaddr' | 'gifdstaddr' | 'gifbrdaddr' |
+                     'gifnetmask' | 'gifhwaddr' |
+                     'gifmtu' | 'giftxqlen' | 'gifflags',
+      NameOrIndex :: string() | integer(),
+      Result      :: term(),
+      Reason      :: posix() | 'closed'.
+
+ioctl(?socket(SockRef), gifname = GetRequest, Index)
+  when is_integer(Index) ->
+    prim_socket:ioctl(SockRef, GetRequest, Index);
+ioctl(?socket(SockRef), gifindex = GetRequest, Name)
+  when is_list(Name) ->
+    prim_socket:ioctl(SockRef, GetRequest, Name);
+ioctl(?socket(SockRef), gifaddr = GetRequest, Name)
+  when is_list(Name) ->
+    prim_socket:ioctl(SockRef, GetRequest, Name);
+ioctl(?socket(SockRef), gifdstaddr = GetRequest, Name)
+  when is_list(Name) ->
+    prim_socket:ioctl(SockRef, GetRequest, Name);
+ioctl(?socket(SockRef), gifbrdaddr = GetRequest, Name)
+  when is_list(Name) ->
+    prim_socket:ioctl(SockRef, GetRequest, Name);
+ioctl(?socket(SockRef), gifnetmask = GetRequest, Name)
+  when is_list(Name) ->
+    prim_socket:ioctl(SockRef, GetRequest, Name);
+ioctl(?socket(SockRef), gifmtu = GetRequest, Name)
+  when is_list(Name) ->
+    prim_socket:ioctl(SockRef, GetRequest, Name);
+ioctl(?socket(SockRef), gifhwaddr = GetRequest, Name)
+  when is_list(Name) ->
+    prim_socket:ioctl(SockRef, GetRequest, Name);
+ioctl(?socket(SockRef), giftxqlen = GetRequest, Name)
+  when is_list(Name) ->
+    prim_socket:ioctl(SockRef, GetRequest, Name);
+ioctl(?socket(SockRef), gifflags = GetRequest, Name)
+  when is_list(Name) ->
+    prim_socket:ioctl(SockRef, GetRequest, Name);
+ioctl(?socket(SockRef), gifmap = GetRequest, Name)
+  when is_list(Name) ->
+    prim_socket:ioctl(SockRef, GetRequest, Name);
+ioctl(Socket, GetRequest, Arg) ->
+    erlang:error(badarg, [Socket, GetRequest, Arg]).
+
+
+-spec ioctl(Socket, SetRequest, Name, Value) -> 'ok' | {'error', Reason} when
+      Socket     :: socket(),
+      SetRequest :: 'sifflags' |
+                    'sifaddr' | 'sifdstaddr' | 'sifbrdaddr' |
+                    'sifnetmask' | 'sifhwaddr' |
+                    'gifmtu' | 'siftxqlen',
+      Name       :: string(),
+      Value      :: term(),
+      Reason     :: posix() | 'closed'.
+
+ioctl(?socket(SockRef), sifflags = SetRequest, Name, Flags)
+  when is_list(Name) andalso is_map(Flags) ->
+    prim_socket:ioctl(SockRef, SetRequest, Name, Flags);
+ioctl(?socket(SockRef), sifaddr = SetRequest, Name, Addr)
+  when is_list(Name) andalso is_map(Addr) ->
+    prim_socket:ioctl(SockRef, SetRequest, Name, prim_socket:enc_sockaddr(Addr));
+ioctl(?socket(SockRef), sifdstaddr = SetRequest, Name, DstAddr)
+  when is_list(Name) andalso is_map(DstAddr) ->
+    prim_socket:ioctl(SockRef, SetRequest, Name, prim_socket:enc_sockaddr(DstAddr));
+ioctl(?socket(SockRef), sifbrdaddr = SetRequest, Name, BrdAddr)
+  when is_list(Name) andalso is_map(BrdAddr) ->
+    prim_socket:ioctl(SockRef, SetRequest, Name, prim_socket:enc_sockaddr(BrdAddr));
+ioctl(?socket(SockRef), sifnetmask = SetRequest, Name, NetMask)
+  when is_list(Name) andalso is_map(NetMask) ->
+    prim_socket:ioctl(SockRef, SetRequest, Name, prim_socket:enc_sockaddr(NetMask));
+ioctl(?socket(SockRef), sifmtu = SetRequest, Name, MTU)
+  when is_list(Name) andalso is_integer(MTU) ->
+    prim_socket:ioctl(SockRef, SetRequest, Name, MTU);
+ioctl(?socket(SockRef), siftxqlen = SetRequest, Name, QLen)
+  when is_list(Name) andalso is_integer(QLen) ->
+    prim_socket:ioctl(SockRef, SetRequest, Name, QLen);
+ioctl(Socket, SetRequest, Arg1, Arg2) ->
+    erlang:error(badarg, [Socket, SetRequest, Arg1, Arg2]).
 
 
 %% ===========================================================================

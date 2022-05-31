@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 2013-2021. All Rights Reserved.
+%% Copyright Ericsson AB 2013-2022. All Rights Reserved.
 %% 
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -82,7 +82,8 @@ all() ->
      mime_types_format,
      erl_script_timeout_default,
      erl_script_timeout_option,
-     erl_script_timeout_proplist
+     erl_script_timeout_proplist,
+     erl_script_alias_all
     ].
 
 groups() ->
@@ -157,7 +158,8 @@ http_get() ->
      max_header,
      max_content_length,
      ignore_invalid_header,
-     ipv6
+     ipv6,
+     same_file_name_dir_name
     ].
 
 
@@ -768,6 +770,21 @@ ipv6(Config) when is_list(Config) ->
      end.
 
 %%-------------------------------------------------------------------------
+same_file_name_dir_name() ->
+    [{doc,"Test that URI path that has a filename in it is not interpreted as the file"}].
+same_file_name_dir_name(Config) when is_list(Config) ->
+    Version = proplists:get_value(http_version, Config),
+    Host = proplists:get_value(host, Config),
+    Type = proplists:get_value(type, Config),
+    ok = httpd_test_lib:verify_request(Type, Host,
+                                       proplists:get_value(port, Config),
+                                       transport_opts(Type, Config),
+                                       proplists:get_value(node, Config),
+                                       http_request("GET /index.html/foo.html ", Version, Host),
+                                       [{statuscode, 404},
+                                        {version, Version}]).
+
+%%-------------------------------------------------------------------------
 chunked_post() ->
     [{doc,"Test option max_client_body_chunk"}].
 chunked_post(Config) when is_list(Config) ->
@@ -866,7 +883,7 @@ chunked(Config) when is_list(Config) ->
 %%-------------------------------------------------------------------------
 expect() ->   
     ["Check that the server handles request with the expect header "
-     "field appropiate"].
+     "field appropriate"].
 expect(Config) when is_list(Config) ->
     httpd_1_1:expect(proplists:get_value(type, Config), proplists:get_value(port, Config), 
 		     proplists:get_value(host, Config), proplists:get_value(node, Config)).
@@ -1026,7 +1043,7 @@ cgi() ->
 
 cgi(Config) when is_list(Config) -> 
     {Script, Script2, Script3} =
-	case test_server:os_type() of
+	case os:type() of
 	    {win32, _} ->
 		{"printenv.bat", "printenv.sh", "cgi_echo.exe"};
 	    _ ->
@@ -1101,7 +1118,7 @@ cgi_chunked_encoding_test() ->
 cgi_chunked_encoding_test(Config) when is_list(Config) ->
     Host = proplists:get_value(host, Config),
     Script =
-	case test_server:os_type() of
+	case os:type() of
 	    {win32, _} ->
 		"/cgi-bin/printenv.bat";
 	    _ ->
@@ -1830,6 +1847,16 @@ erl_script_timeout_proplist(Config) when is_list(Config) ->
     verify_body(Body, 3000),
     inets:stop().
 
+erl_script_alias_all(Config0) when is_list(Config0) ->
+    ok = start_apps(http_basic),
+    Config1 = [{http_version, "HTTP/1.0"},
+               {type, ip_comm} |
+               Config0],
+    Config2 = init_httpd(http_basic_erl_script_alias_all, Config1),
+    ok = http_status("GET /cgi-bin/erl/httpd_example:get ",
+        	     Config2, [{statuscode, 200}]),
+    inets:stop().
+
 tls_alert(Config) when is_list(Config) ->
     SSLOpts = proplists:get_value(client_alert_conf, Config),    
     Port = proplists:get_value(port, Config),    
@@ -1931,7 +1958,7 @@ setup_server_dirs(ServerRoot, DocRoot, DataDir) ->
     inets_test_lib:copy_dirs(PicsSrc, PicsDir),
     inets_test_lib:copy_dirs(ConfigSrc, ConfigDir),
         
-    Cgi = case test_server:os_type() of
+    Cgi = case os:type() of
 	      {win32, _} ->
 		  "cgi_echo.exe";
 	      _ ->
@@ -2017,6 +2044,8 @@ init_ssl(Group, Config) ->
 
 server_config(http_basic, Config) ->
     basic_conf() ++ server_config(http, Config);
+server_config(http_basic_erl_script_alias_all, Config) ->
+    basic_conf() ++ server_config(http_erl_script_alias_all, Config);
 server_config(https_basic, Config) ->
     basic_conf() ++ server_config(https, Config);
 server_config(http_not_sup, Config) ->
@@ -2085,50 +2114,40 @@ server_config(https_alert, Config) ->
     basic_conf() ++ server_config(https, Config);
 server_config(http, Config) ->
     ServerRoot = proplists:get_value(server_root, Config),
-    [{port, 0},
-     {socket_type, {ip_comm, [{nodelay, true}]}},
-     {server_name,"httpd_test"},
-     {server_root, ServerRoot},
-     {document_root, proplists:get_value(doc_root, Config)},
-     {bind_address, any},
-     {ipfamily, proplists:get_value(ipfamily, Config)},
-     {max_header_size, 256},
-     {max_header_action, close},
-     {directory_index, ["index.html", "welcome.html"]},
-     {mime_types, [{"html","text/html"},{"htm","text/html"}, {"shtml","text/html"},
-		   {"gif", "image/gif"}]},
-     {alias, {"/icons/", filename:join(ServerRoot,"icons") ++ "/"}},
-     {alias, {"/pics/",  filename:join(ServerRoot,"icons") ++ "/"}},
-     {script_alias, {"/cgi-bin/", filename:join(ServerRoot, "cgi-bin") ++ "/"}},
-     {script_alias, {"/htbin/", filename:join(ServerRoot, "cgi-bin") ++ "/"}},
-     {erl_script_alias, {"/cgi-bin/erl", [httpd_example, io]}}
-    ];
+    config_template(Config, ServerRoot,
+                    filename:join(ServerRoot, "cgi-bin") ++ "/", [httpd_example, io]);
+server_config(http_erl_script_alias_all, Config) ->
+    ServerRoot = proplists:get_value(server_root, Config),
+    config_template(Config, ServerRoot, "./cgi-bin/", [all]);
 server_config(http_rel_path_script_alias, Config) ->
     ServerRoot = proplists:get_value(server_root, Config),
-    [{port, 0},
-     {socket_type, {ip_comm, [{nodelay, true}]}},
-     {server_name,"httpd_test"},
-     {server_root, ServerRoot},
-     {document_root, proplists:get_value(doc_root, Config)},
-     {bind_address, any},
-     {ipfamily, proplists:get_value(ipfamily, Config)},
-     {max_header_size, 256},
-     {max_header_action, close},
-     {directory_index, ["index.html", "welcome.html"]},
-     {mime_types, [{"html","text/html"},{"htm","text/html"}, {"shtml","text/html"},
-		   {"gif", "image/gif"}]},
-     {alias, {"/icons/", filename:join(ServerRoot,"icons") ++ "/"}},
-     {alias, {"/pics/",  filename:join(ServerRoot,"icons") ++ "/"}},
-     {script_alias, {"/cgi-bin/", "./cgi-bin/"}},
-     {script_alias, {"/htbin/", "./cgi-bin/"}},
-     {erl_script_alias, {"/cgi-bin/erl", [httpd_example, io]}}
-    ];
+    config_template(Config, ServerRoot, "./cgi-bin/", [httpd_example, io]);
 server_config(https, Config) ->
     SSLConf = proplists:get_value(ssl_conf, Config),
     ServerConf = proplists:get_value(server_config, SSLConf),
     [{socket_type, {essl,
 		    [{nodelay, true} | ServerConf]}}]
         ++ proplists:delete(socket_type, server_config(http, Config)).
+
+config_template(Config, ServerRoot, ScriptPath, Modules) ->
+    [{port, 0},
+     {socket_type, {ip_comm, [{nodelay, true}]}},
+     {server_name,"httpd_test"},
+     {server_root, ServerRoot},
+     {document_root, proplists:get_value(doc_root, Config)},
+     {bind_address, any},
+     {ipfamily, proplists:get_value(ipfamily, Config)},
+     {max_header_size, 256},
+     {max_header_action, close},
+     {directory_index, ["index.html", "welcome.html"]},
+     {mime_types, [{"html","text/html"},{"htm","text/html"}, {"shtml","text/html"},
+		   {"gif", "image/gif"}]},
+     {alias, {"/icons/", filename:join(ServerRoot,"icons") ++ "/"}},
+     {alias, {"/pics/",  filename:join(ServerRoot,"icons") ++ "/"}},
+     {script_alias, {"/cgi-bin/", ScriptPath}},
+     {script_alias, {"/htbin/", ScriptPath}},
+     {erl_script_alias, {"/cgi-bin/erl", Modules}}
+    ].
 
 init_httpd(Group, Config0) ->
     Config1 = proplists:delete(port, Config0),

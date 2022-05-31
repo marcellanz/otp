@@ -4,7 +4,7 @@
 <chapter>
   <header>
     <copyright>
-      <year>2004</year><year>2018</year>
+      <year>2004</year><year>2021</year>
       <holder>Ericsson AB. All Rights Reserved.</holder>
     </copyright>
     <legalnotice>
@@ -31,6 +31,22 @@
   </header>
   <p>This document describes the changes made to the Xmerl application.</p>
 
+
+<section><title>Xmerl 1.3.29</title>
+
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+          <p>
+	    Fixed misspellings in both documentation, comments and
+	    code (internal data structures).</p>
+          <p>
+	    Own Id: OTP-17935 Aux Id: PR-5590 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
 
 <section><title>Xmerl 1.3.28</title>
 

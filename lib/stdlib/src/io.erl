@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1996-2019. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2021. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -335,6 +335,7 @@ read(Io, Prompt, Pos0, Options) ->
 
 conv_reason(arguments) -> badarg;
 conv_reason(terminated) -> terminated;
+conv_reason(calling_self) -> calling_self;
 conv_reason({no_translation,_,_}) -> no_translation;
 conv_reason(_Reason) -> badarg.
 
@@ -596,6 +597,8 @@ request(Name, Request, ErrorTag) when is_atom(Name) ->
 	    request(Pid, Request, ErrorTag)
     end.
 
+execute_request(Pid, _Tuple, ErrorTag) when Pid =:= self() ->
+    {ErrorTag, calling_self};
 execute_request(Pid, {Convert,Converted}, ErrorTag) ->
     Mref = erlang:monitor(process, Pid),
     Pid ! {io_request,self(),Mref,Converted},

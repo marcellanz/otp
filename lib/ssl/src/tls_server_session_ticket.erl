@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2007-2020. All Rights Reserved.
+%% Copyright Ericsson AB 2007-2022. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -58,8 +58,8 @@
                       {error, Error :: {already_started, pid()}} |
                       {error, Error :: term()} |
                       ignore.
-start_link(Listner, Mode, Lifetime, TicketStoreSize, MaxEarlyDataSize, AntiReplay) ->
-    gen_server:start_link(?MODULE, [Listner, Mode, Lifetime, TicketStoreSize, MaxEarlyDataSize, AntiReplay], []).
+start_link(Listener, Mode, Lifetime, TicketStoreSize, MaxEarlyDataSize, AntiReplay) ->
+    gen_server:start_link(?MODULE, [Listener, Mode, Lifetime, TicketStoreSize, MaxEarlyDataSize, AntiReplay], []).
 
 new(Pid, Prf, MasterSecret) ->
     gen_server:call(Pid, {new_session_ticket, Prf, MasterSecret}, infinity).
@@ -181,7 +181,7 @@ inital_state([stateful, Lifetime, TicketStoreSize, MaxEarlyDataSize|_]) ->
           }.
 
 ticket_age_add() ->
-    MaxTicketAge = 7 * 24 * 3600,
+    MaxTicketAge = 7 * 24 * 3600 * 1000,
     IntMax = round(math:pow(2,32)) - 1,
     MaxAgeAdd = IntMax - MaxTicketAge,
     <<?UINT32(I)>> = crypto:strong_rand_bytes(4),
@@ -239,7 +239,7 @@ stateful_ticket_store(Ref, NewSessionTicket, Hash, Psk,
     StatefulTicket = {NewSessionTicket, Hash, Psk},
     case gb_trees:size(Tree0) of
         Max ->
-            %% Trow away oldes ticket
+            %% Trow away oldest ticket
             {_, {#new_session_ticket{ticket = OldRef},_,_}, Tree1} 
                 = gb_trees:take_smallest(Tree0),
             Tree = gb_trees:insert(Id, StatefulTicket, Tree1),
@@ -311,7 +311,7 @@ stateful_living_ticket({TimeStamp,_},
 
 stateful_psk_ticket_id(Key) ->
     Unique = erlang:unique_integer(),
-    %% Obfuscate to avoid DoS attack possiblities
+    %% Obfuscate to avoid DoS attack possibilities
     %% that could invalidate tickets and render them
     %% unusable. This id should be unpredictable
     %% and unique but have no other cryptographic requirements.
@@ -385,10 +385,10 @@ stateless_living_ticket(0, _, _, _, _) ->
 stateless_living_ticket(ObfAge, TicketAgeAdd, Lifetime, Timestamp, Window) ->
     ReportedAge = ObfAge - TicketAgeAdd,
     RealAge = erlang:system_time(second) - Timestamp,
-    (ReportedAge =< Lifetime)
+    (ReportedAge =< Lifetime * 1000)
         andalso (RealAge =< Lifetime)
         andalso (in_window(RealAge, Window)).
-        
+
 in_window(_, undefined) ->
     true;
 in_window(Age, Window) when is_integer(Window) ->

@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 1998-2016. All Rights Reserved.
+%% Copyright Ericsson AB 1998-2022. All Rights Reserved.
 %% 
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -71,7 +71,7 @@
 %%%====================================================================================
 %%% The state of the global_group process
 %%% 
-%%% sync_state =  no_conf (global_groups not defined, inital state) |
+%%% sync_state =  no_conf (global_groups not defined, initial state) |
 %%%               synced 
 %%% group_name =  Own global group name
 %%% nodes =       Nodes in the own global group
@@ -219,9 +219,9 @@ request(Req, Time) ->
 %%% at release upgrade when all nodes are not yet upgraded.
 %%%
 %%% It is possible to manually force a sync of the global_group. This is done for 
-%%% instance after a release upgrade, after all nodes in the group beeing upgraded.
+%%% instance after a release upgrade, after all nodes in the group being upgraded.
 %%% The nodes are not synced automatically because it would cause the node to be
-%%% disconnected from those not yet beeing upgraded.
+%%% disconnected from those not yet being upgraded.
 %%%
 %%% The three process dictionary variables (registered_names, send, and whereis_name) 
 %%% are used to store information needed if the search process crashes. 
@@ -281,7 +281,7 @@ init([]) ->
 %%% sync() -> ok 
 %%%
 %%% An operator ordered sync of the own global group. This must be done after
-%%% a release upgrade. It can also be ordered if somthing has made the nodes
+%%% a release upgrade. It can also be ordered if something has made the nodes
 %%% to disagree of the global_groups definition.
 %%%====================================================================================
 handle_call(sync, _From, S) ->
@@ -525,7 +525,7 @@ handle_call({global_groups_changed, NewPara}, _From, S) ->
     %% group) global is not going to be synced to these nodes. We disconnect instead
     %% of connect because upgrades can be done node by node and we cannot really
     %% know what nodes these new nodes are synced to. The operator can always 
-    %% manually force a sync of the nodes after all nodes beeing uppgraded.
+    %% manually force a sync of the nodes after all nodes being uppgraded.
     %% We must disconnect also if some nodes to which we have a connection
     %% will not be in any global group at all.
     force_nodedown(nodes(connected) -- NewNodes),
@@ -925,15 +925,20 @@ handle_info({nodedown, Node}, S) when S#state.sync_state =:= no_conf ->
 handle_info({nodedown, Node}, S) ->
 %    io:format("~p>>>>> nodedown, Node ~p  ~n",[node(), Node]),
     send_monitor(S#state.monitor, {nodedown, Node}, S#state.sync_state),
-    global_name_server ! {nodedown, Node},
     NN = lists:delete(Node, S#state.nodes),
     NSE = lists:delete(Node, S#state.sync_error),
-    NNC = case {lists:member(Node, get_own_nodes()), 
-		lists:member(Node, S#state.no_contact)} of
-	      {true, false} ->
-		  [Node | S#state.no_contact];
-	      _ ->
-		  S#state.no_contact
+    NNC = case lists:member(Node, get_own_nodes()) of
+              false ->
+                  global_name_server ! {ignore_node, Node},
+                  S#state.no_contact;
+              true ->
+                  global_name_server ! {nodedown, Node},
+                  case lists:member(Node, S#state.no_contact) of
+                      false ->
+                          [Node | S#state.no_contact];
+                      true ->
+                          S#state.no_contact
+                  end
 	  end,
     {noreply, S#state{nodes = NN, no_contact = NNC, sync_error = NSE}};
 
@@ -950,8 +955,7 @@ handle_info({disconnect_node, Node}, S) ->
 	_ ->
 	    cont
     end,
-    global_name_server ! {nodedown, Node}, %% nodedown is used to inform global of the
-                                           %% disconnected node
+    global_name_server ! {ignore_node, Node},
     NN = lists:delete(Node, S#state.nodes),
     NNC = lists:delete(Node, S#state.no_contact),
     NSE = lists:delete(Node, S#state.sync_error),
@@ -1264,7 +1268,7 @@ kill_global_group_check() ->
 disconnect_nodes(DisconnectNodes) ->
     lists:foreach(fun(Node) ->
 			  {global_group, Node} ! {disconnect_node, node()},
-			  global:node_disconnected(Node)
+                          global_name_server ! {ignore_node, Node}
 		  end,
 		  DisconnectNodes).
 
@@ -1275,7 +1279,7 @@ disconnect_nodes(DisconnectNodes) ->
 force_nodedown(DisconnectNodes) ->
     lists:foreach(fun(Node) ->
 			  erlang:disconnect_node(Node),
-			  global:node_disconnected(Node)
+                          global_name_server ! {ignore_node, Node}
 		  end,
 		  DisconnectNodes).
 

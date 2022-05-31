@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  * 
- * Copyright Ericsson AB 1997-2016. All Rights Reserved.
+ * Copyright Ericsson AB 1997-2021. All Rights Reserved.
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -1903,7 +1903,7 @@ void LogFileWrite(TCHAR *buf, int num_chars)
             to = *((int *)buf);
             buf += (sizeof(int)/sizeof(TCHAR))-1;
             num_chars -= 2 * (sizeof(int)/sizeof(TCHAR));
-	    // Wont seek in Unicode file, sorry...
+	    // Won't seek in Unicode file, sorry...
             // fseek(logfile,to-from *sizeof(TCHAR),SEEK_CUR);
             break;
         default:

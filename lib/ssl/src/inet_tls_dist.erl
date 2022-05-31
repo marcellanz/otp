@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2011-2020. All Rights Reserved.
+%% Copyright Ericsson AB 2011-2022. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -53,15 +53,7 @@ select(Node) ->
     gen_select(inet_tcp, Node).
 
 gen_select(Driver, Node) ->
-    case dist_util:split_node(Node) of
-        {node,_,Host} ->
-	    case Driver:getaddr(Host) of
-		{ok, _} -> true;
-		_ -> false
-	    end;
-        _ ->
-            false
-    end.
+    inet_tcp_dist:gen_select(Driver, Node).
 
 %% ------------------------------------------------------------
 %% Get the address family that this distribution uses
@@ -323,10 +315,10 @@ accept_one(Driver, Kernel, Socket) ->
 %% {verify_fun,{fun ?MODULE:verify_client/3,_}} is used
 %% as a configuration marker that verify_client/3 shall be used.
 %%
-%% Replace the State in the first occurence of
+%% Replace the State in the first occurrence of
 %% {verify_fun,{fun ?MODULE:verify_client/3,State}}
 %% and remove the rest.
-%% The inserted state is not accesible from a configuration file
+%% The inserted state is not accessible from a configuration file
 %% since it is dynamic and connection dependent.
 %%
 setup_verify_client(Socket, Opts) ->
@@ -448,12 +440,14 @@ gen_accept_connection(
                   Driver, AcceptPid, DistCtrl,
                   MyNode, Allowed, SetupTime, Kernel)
         end,
-        [link, {priority, max}])).
+        dist_util:net_ticker_spawn_options())).
 
 do_accept(
   _Driver, AcceptPid, DistCtrl, MyNode, Allowed, SetupTime, Kernel) ->
+    MRef = erlang:monitor(process, AcceptPid),
     receive
 	{AcceptPid, controller} ->
+            erlang:demonitor(MRef, [flush]),
             {ok, SslSocket} = tls_sender:dist_tls_socket(DistCtrl),
 	    Timer = dist_util:start_timer(SetupTime),
             NewAllowed = allowed_nodes(SslSocket, Allowed),
@@ -471,6 +465,11 @@ do_accept(
         {AcceptPid, exit} ->
             %% this can happen when connection was initiated, but dropped
             %%  between TLS handshake completion and dist handshake start
+            ?shutdown2(MyNode, connection_setup_failed);
+        {'DOWN', MRef, _, _, _Reason} ->
+            %% this may happen when connection was initiated, but dropped
+            %% due to crash propagated from other handshake process which
+            %% failed on inet_tcp:accept (see GH-5332)
             ?shutdown2(MyNode, connection_setup_failed)
     end.
 
@@ -540,7 +539,7 @@ gen_setup(Driver, Node, Type, MyNode, LongOrShortNames, SetupTime) ->
     Kernel = self(),
     monitor_pid(
       spawn_opt(setup_fun(Driver, Kernel, Node, Type, MyNode, LongOrShortNames, SetupTime),
-                [link, {priority, max}])).
+                dist_util:net_ticker_spawn_options())).
 
 -spec setup_fun(_,_,_,_,_,_,_) -> fun(() -> no_return()).
 setup_fun(Driver, Kernel, Node, Type, MyNode, LongOrShortNames, SetupTime) ->
@@ -582,8 +581,8 @@ do_setup_connect(Driver, Kernel, Node, Address, Ip, TcpPort, Version, Type, MyNo
     Opts =  trace(connect_options(get_ssl_options(client))),
     dist_util:reset_timer(Timer),
     case ssl:connect(
-        Address, TcpPort,
-        [binary, {active, false}, {packet, 4},
+        Ip, TcpPort,
+        [binary, {active, false}, {packet, 4}, {server_name_indication, Address},
             Driver:family(), {nodelay, true}] ++ Opts,
         net_kernel:connecttime()) of
     {ok, #sslsocket{pid = [_, DistCtrl| _]} = SslSocket} ->

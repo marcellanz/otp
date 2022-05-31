@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 2020-2020. All Rights Reserved.
+%% Copyright Ericsson AB 2020-2021. All Rights Reserved.
 %% 
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -47,17 +47,16 @@ start_child(Listener) ->
 %%%=========================================================================
 %%%  Supervisor callback
 %%%=========================================================================
-init(_O) ->
-    RestartStrategy = simple_one_for_one,
-    MaxR = 0,
-    MaxT = 3600,
-   
-    Name = undefined, % As simple_one_for_one is used.
-    StartFunc = {ssl_server_session_cache, start_link, []},
-    Restart = temporary, % E.g. should not be restarted
-    Shutdown = 4000,
-    Modules = [ssl_server_session_cache],
-    Type = worker,
-    
-    ChildSpec = {Name, StartFunc, Restart, Shutdown, Type, Modules},
-    {ok, {{RestartStrategy, MaxR, MaxT}, [ChildSpec]}}.
+init(_) ->
+    SupFlags = #{strategy  => simple_one_for_one, 
+                 intensity =>   0,
+                 period    => 3600
+                },
+    ChildSpecs = [#{id       => undefined,
+                    start    => {ssl_server_session_cache, start_link, []},
+                    restart  => temporary, 
+                    shutdown => 4000,
+                    modules  => [ssl_server_session_cache],
+                    type     => worker
+                   }], 
+    {ok, {SupFlags, ChildSpecs}}.

@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2012-2020. All Rights Reserved.
+%% Copyright Ericsson AB 2012-2022. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -58,7 +58,8 @@
 
 -export([time_unit/0, perf_counter_unit/0]).
 
--export([is_system_process/1]).
+-export([is_system_process/1,
+         set_code_and_literal_cleaner_prio/1]).
 
 -export([await_microstate_accounting_modifications/3,
 	 gather_microstate_accounting_result/2]).
@@ -112,6 +113,8 @@
 -export([crasher/6]).
 
 -export([prepare_loading/2, beamfile_chunk/2, beamfile_module_md5/1]).
+
+-export([no_aux_work_threads/0]).
 
 %%
 %% Await result of send to port
@@ -484,6 +487,26 @@ perf_counter_unit() ->
 is_system_process(_Pid) ->
     erlang:nif_error(undefined).
 
+set_code_and_literal_cleaner_prio(Prio) ->
+    Ref1 = make_ref(),
+    erts_code_purger ! {change_prio, self(), Ref1, Prio},
+    Ref2 = make_ref(),
+    LAC = find_lac(),
+    LAC ! {change_prio, self(), Ref2, Prio},
+    [{code_purger, receive {Ref1, OP1} -> OP1 end},
+     {literal_area_collector, receive {Ref2, OP2} -> OP2 end}].
+
+find_lac() ->
+    find_lac(erlang:processes()).
+
+find_lac([Pid|Pids]) ->
+    case process_info(Pid, initial_call) of
+        {initial_call, {erts_literal_area_collector, start, 0}} ->
+            Pid;
+        _ ->
+            find_lac(Pids)
+    end.
+
 -spec await_microstate_accounting_modifications(Ref, Result, Threads) -> boolean() when
       Ref :: reference(),
       Result :: boolean(),
@@ -719,11 +742,10 @@ process_display(_Pid, _Type) ->
 process_flag(_Pid, _Flag, _Value) ->
     erlang:nif_error(undefined).
 
--spec create_dist_channel(Node, DistCtrlr, {Flags, Ver, Cr}) -> Result when
+-spec create_dist_channel(Node, DistCtrlr, {Flags, Cr}) -> Result when
       Node :: atom(),
       DistCtrlr :: port() | pid(),
       Flags :: integer(),
-      Ver :: integer(),
       Cr :: pos_integer(),
       Result :: {'ok', erlang:dist_handle()}
               | {'message', reference()}
@@ -774,7 +796,7 @@ spawn_system_process(_Mod, _Func, _Args) ->
 %%
 
 -spec ets_lookup_binary_info(Tab, Key) -> BinInfo when
-      Tab :: ets:tab(),
+      Tab :: ets:table(),
       Key :: term(),
       BinInfo :: [{non_neg_integer(), non_neg_integer(), non_neg_integer()}].
 
@@ -788,20 +810,20 @@ ets_super_user(_Bool) ->
     erlang:nif_error(undef).
 
 -spec ets_raw_first(Tab) -> term() when
-      Tab :: ets:tab().
+      Tab :: ets:table().
 
 ets_raw_first(_Tab) ->
     erlang:nif_error(undef).
     
 -spec ets_raw_next(Tab, Key) -> term() when
-      Tab :: ets:tab(),
+      Tab :: ets:table(),
       Key :: term().
 
 ets_raw_next(_Tab, _Key) ->
     erlang:nif_error(undef).
 
 -spec ets_info_binary(Tab) -> BinInfo when
-      Tab :: ets:tab(),
+      Tab :: ets:table(),
       BinInfo :: [{non_neg_integer(), non_neg_integer(), non_neg_integer()}].
 
 ets_info_binary(Tab) ->
@@ -950,4 +972,9 @@ beamfile_chunk(_Bin, _Chunk) ->
 
 -spec beamfile_module_md5(binary()) -> binary() | undefined.
 beamfile_module_md5(_Bin) ->
+    erlang:nif_error(undefined).
+
+-spec no_aux_work_threads() -> pos_integer().
+
+no_aux_work_threads() ->
     erlang:nif_error(undefined).

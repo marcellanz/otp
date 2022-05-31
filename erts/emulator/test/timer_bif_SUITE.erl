@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 1998-2020. All Rights Reserved.
+%% Copyright Ericsson AB 1998-2021. All Rights Reserved.
 %% 
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -228,13 +228,10 @@ start_timer_e(Config) when is_list(Config) ->
     {'EXIT', _} = (catch erlang:start_timer(4.5, self(), hej)),
     {'EXIT', _} = (catch erlang:start_timer(a, self(), hej)),
 
-    Node = start_slave(),
+    {ok, Peer, Node} = ?CT_PEER(),
     Pid = spawn(Node, timer, sleep, [10000]),
     {'EXIT', _} = (catch erlang:start_timer(1000, Pid, hej)),
-    stop_slave(Node),
-
-
-    ok.
+    peer:stop(Peer).
 
 %% Error cases for send_after/3
 send_after_e(Config) when is_list(Config) ->
@@ -245,11 +242,10 @@ send_after_e(Config) when is_list(Config) ->
     {'EXIT', _} = (catch erlang:send_after(4.5, self(), hej)),
     {'EXIT', _} = (catch erlang:send_after(a, self(), hej)),
 
-    Node = start_slave(),
+    {ok, Peer, Node} = ?CT_PEER(),
     Pid = spawn(Node, timer, sleep, [10000]),
     {'EXIT', _} = (catch erlang:send_after(1000, Pid, hej)),
-    stop_slave(Node),
-    ok.
+    peer:stop(Peer).
 
 %% Error cases for cancel_timer/1
 cancel_timer_e(Config) when is_list(Config) ->
@@ -384,7 +380,7 @@ evil_timers(Config) when is_list(Config) ->
     %% in memory
     Self = self(),
     R1 = make_ref(),
-    Node = start_slave(),
+    {ok, Peer, Node} = ?CT_PEER(),
     spawn_link(Node,
                fun () ->
                        Self ! {R1,
@@ -396,7 +392,7 @@ evil_timers(Config) when is_list(Config) ->
                                  fun (A, B) -> A + B end]]}
                end),
     ExtList = receive {R1, L} -> L end,
-    stop_slave(Node),
+    peer:stop(Peer),
     BinList = [<<"bla">>,
                <<"blipp">>,
                <<"blupp">>,
@@ -813,17 +809,6 @@ get_msg() ->
               empty
     end.
 
-start_slave() ->
-    Pa = filename:dirname(code:which(?MODULE)),
-    Name = atom_to_list(?MODULE)
-    ++ "-" ++ integer_to_list(erlang:system_time(second))
-    ++ "-" ++ integer_to_list(erlang:unique_integer([positive])),
-    {ok, Node} = test_server:start_node(Name, slave, [{args, "-pa " ++ Pa}]),
-    Node.
-
-stop_slave(Node) ->
-    test_server:stop_node(Node).
-
 collect(Last) ->
     collect(Last, []).
 
@@ -897,7 +882,7 @@ mem_get() ->
     % Bif timer memory
     Ref = make_ref(),
     erlang:system_info({memory_internal, Ref, [fix_alloc]}),
-    mem_recv(erlang:system_info(schedulers), Ref, {0, 0}).
+    mem_recv(erts_internal:no_aux_work_threads()-1, Ref, {0, 0}).
 
 mem_recv(0, _Ref, AU) ->
     AU;

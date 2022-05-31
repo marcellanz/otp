@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2004-2020. All Rights Reserved.
+%% Copyright Ericsson AB 2004-2021. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -209,6 +209,7 @@
         ssh_file:user_dir_common_option()
       | profile_common_option()
       | max_idle_time_common_option()
+      | max_log_item_len_common_option()
       | key_cb_common_option()
       | disconnectfun_common_option()
       | unexpectedfun_common_option()
@@ -230,6 +231,7 @@
 -type rekey_limit_common_option()   :: {rekey_limit, Bytes::limit_bytes() |
                                                      {Minutes::limit_time(), Bytes::limit_bytes()}
                                        }.
+-type max_log_item_len_common_option() :: {max_log_item_len, limit_bytes()} .
 
 -type limit_bytes() :: non_neg_integer() | infinity .  % non_neg_integer due to compatibility
 -type limit_time()  :: pos_integer() | infinity .

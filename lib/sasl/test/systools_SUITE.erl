@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2012-2018. All Rights Reserved.
+%% Copyright Ericsson AB 2012-2021. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -106,6 +106,9 @@ init_per_suite(Config) when is_list(Config) ->
     %% Compile source files in the copy directory.
     Sources = filelib:wildcard(fname([CopyDir,'*','*','*','*','*.erl'])),
     lists:foreach(fun compile_source/1, Sources),
+    %% Deal with subdirectories, if any
+    SubSources = filelib:wildcard(fname([CopyDir,'*','*','*','*','*','*.erl'])),
+    lists:foreach(fun compile_subsource/1, SubSources),
 
     [{copy_dir, CopyDir}, {cwd,Cwd}, {path,Path} | Config].
 
@@ -115,6 +118,16 @@ compile_source(File) ->
     %% file, so we must compile to a binary and write
     %% the output file ourselves.
     U = filename:dirname(filename:dirname(File)),
+    Base = filename:rootname(filename:basename(File)),
+    OutFile = filename:join([U,"ebin",Base++".beam"]),
+    OutFileTemp = OutFile ++ "#",
+    {ok,_,Code} = compile:file(File, [binary]),
+    ok = file:write_file(OutFileTemp, Code),
+    file:rename(OutFileTemp, OutFile).
+
+compile_subsource(File) ->
+    %% Same as compile_source/1 but works a subdirectory lower
+    U = filename:dirname(filename:dirname(filename:dirname(File))),
     Base = filename:rootname(filename:basename(File)),
     OutFile = filename:join([U,"ebin",Base++".beam"]),
     OutFileTemp = OutFile ++ "#",
@@ -278,9 +291,7 @@ unicode_script(Config) when is_list(Config) ->
 
     %% Need to do this on a separate node to make sure it has unicode
     %% filename mode (+fnu*)
-    {ok,HostStr} = inet:gethostname(),
-    Host = list_to_atom(HostStr),
-    {ok,Node} = ct_slave:start(Host,unicode_script_node,[{erl_flags,"+fnui"}]),
+    {ok,Peer,Node} = ?CT_PEER(["+fnui"]),
 
     ok = rpc:call(Node,erl_tar,extract,
 		  [TarFile, [{cwd,UnicodeLibDir},compressed]]),
@@ -313,10 +324,11 @@ unicode_script(Config) when is_list(Config) ->
     rpc:call(Node,code,add_pathz,[filename:dirname(code:which(?MODULE))]),
     rpc:call(Node,?MODULE,delete_tree,[UnicodeLibDir]),
 
+    peer:stop(Peer),
+
     ok.
 
 unicode_script(cleanup,Config) ->
-    _ = ct_slave:stop(unicode_script_node),
     file:delete(fname(?privdir, "unicode_app.tgz")),
     ok.
 
@@ -1111,6 +1123,8 @@ erts_tar(Config) ->
                       string:equal(filename:dirname(File),ERTS_DIR),
                       %% Filter out beam.*.smp.*
                       re:run(filename:basename(File), "beam\\.[^\\.]+\\.smp(\\.dll)?") == nomatch,
+                      %% Filter out beam.*.emu.*
+                      re:run(filename:basename(File), "beam\\.([^\\.]+\\.)?emu(\\.dll)?") == nomatch,
                       %% Filter out any erl_child_setup.*
                       re:run(filename:basename(File), "erl_child_setup\\..*") == nomatch
                   ])
@@ -1384,7 +1398,7 @@ src_tests_tar(Config) when is_list(Config) ->
 
 %% make_tar: Check that make_tar handles generation and placement of
 %% tar files for variables outside the main tar file.
-%% Test the {var_tar, include | ownfile | omit} optio.
+%% Test the {var_tar, include | ownfile | omit} option.
 var_tar(Config) when is_list(Config) ->
     {ok, OldDir} = file:get_cwd(),
     PSAVE = code:get_path(),		% Save path

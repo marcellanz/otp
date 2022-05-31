@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 1999-2020. All Rights Reserved.
+ * Copyright Ericsson AB 1999-2021. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -69,6 +69,8 @@ static void delete_code(Module* modp);
 static int any_heap_ref_ptrs(Eterm* start, Eterm* end, char* mod_start, Uint mod_size);
 static int any_heap_refs(Eterm* start, Eterm* end, char* mod_start, Uint mod_size);
 
+static erts_atomic_t sys_proc_outstanding_req_limit;
+
 static void
 init_purge_state(void)
 {
@@ -95,10 +97,35 @@ static void
 init_release_literal_areas(void);
 
 void
-erts_beam_bif_load_init(void)
+erts_beam_bif_load_init(Uint sys_proc_outst_req_lim)
 {
+    if (sys_proc_outst_req_lim < 1 || ERTS_MAX_PROCESSES < sys_proc_outst_req_lim)
+        ERTS_INTERNAL_ERROR("invalid system process outstanding requests limit");
+    erts_atomic_init_nob(&sys_proc_outstanding_req_limit,
+                         (erts_aint_t) sys_proc_outst_req_lim);
     init_release_literal_areas();
     init_purge_state();
+}
+
+Uint
+erts_set_outstanding_system_requests_limit(Uint new_val)
+{
+    erts_aint_t old_val;
+
+    if (new_val < 1 || ERTS_MAX_PROCESSES < new_val)
+        return 0;
+
+    old_val = erts_atomic_xchg_nob(&sys_proc_outstanding_req_limit,
+                                   (erts_aint_t) new_val);
+    return (Uint) old_val;
+}
+
+Uint
+erts_get_outstanding_system_requests_limit(void)
+{
+    erts_aint_t val = erts_atomic_read_nob(&sys_proc_outstanding_req_limit);
+    ASSERT(0 < val && val <= MAX_SMALL);
+    return (Uint) val;
 }
 
 static int read_iff_list(Eterm iff_list, Uint *res) {
@@ -777,6 +804,12 @@ BIF_RETTYPE loaded_0(BIF_ALIST_0)
 
 BIF_RETTYPE call_on_load_function_1(BIF_ALIST_1)
 {
+#ifdef BEAMASM
+    /* This is implemented as an instruction. We've skipped providing a more
+     * helpful error message since it's undocumented and should never be called
+     * by the user. */
+    BIF_ERROR(BIF_P, BADARG);
+#else
     Module* modp = erts_get_module(BIF_ARG_1, erts_active_code_ix());
     const BeamCodeHeader *hdr;
 
@@ -792,6 +825,7 @@ BIF_RETTYPE call_on_load_function_1(BIF_ALIST_1)
     }
 
     BIF_ERROR(BIF_P, BADARG);
+#endif
 }
 
 BIF_RETTYPE finish_after_on_load_2(BIF_ALIST_2)
@@ -850,7 +884,7 @@ BIF_RETTYPE finish_after_on_load_2(BIF_ALIST_2)
 	modp->on_load = 0;
 
 	/*
-	 * The on_load function succeded. Fix up export entries.
+	 * The on_load function succeeded. Fix up export entries.
 	 */
 	num_exps = export_list_size(code_ix);
 	for (i = 0; i < num_exps; i++) {
@@ -863,7 +897,8 @@ BIF_RETTYPE finish_after_on_load_2(BIF_ALIST_2)
             DBG_CHECK_EXPORT(ep, code_ix);
 
             if (ep->trampoline.not_loaded.deferred != 0) {
-                    ep->addresses[code_ix] = (void*)ep->trampoline.not_loaded.deferred;
+                    ep->dispatch.addresses[code_ix] =
+                        (void*)ep->trampoline.not_loaded.deferred;
                     ep->trampoline.not_loaded.deferred = 0;
             } else {
                 if (ep->bif_number != -1) {
@@ -1228,7 +1263,7 @@ any_heap_refs(Eterm* start, Eterm* end, char* mod_start, Uint mod_size)
  * - erts_internal:release_literal_area_switch() changes the set of
  *   counters that blocks release of literal areas
  * - The literal area collector process gets suspended waiting thread
- *   progress in order to ensure that the change of counters is visable
+ *   progress in order to ensure that the change of counters is visible
  *   by all schedulers.
  * - When the literal area collector process is resumed after thread
  *   progress has completed, erts_internal:release_literal_area_switch()
@@ -1992,6 +2027,10 @@ BIF_RETTYPE erts_internal_purge_module_2(BIF_ALIST_2)
 
 		erts_remove_from_ranges(modp->old.code_hdr);
 
+                if (modp->old.code_hdr->are_nifs) {
+                    erts_free(ERTS_ALC_T_PREPARED_CODE,
+                              modp->old.code_hdr->are_nifs);
+                }
 #ifndef BEAMASM
                 erts_free(ERTS_ALC_T_CODE, (void *) modp->old.code_hdr);
 #else

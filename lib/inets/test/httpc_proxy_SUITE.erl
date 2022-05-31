@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 2012-2016. All Rights Reserved.
+%% Copyright Ericsson AB 2012-2022. All Rights Reserved.
 %% 
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -78,14 +78,15 @@ local_proxy_cases() ->
      http_not_modified_otp_6821].
 
 local_proxy_https_cases() ->
-    [https_connect_error].
+    [https_connect_error,
+     http_timeout].
 
 %%--------------------------------------------------------------------
 
 init_per_suite(Config0) ->
     case init_apps(suite_apps(), Config0) of
 	Config when is_list(Config) ->
-	    make_cert_files(dsa, "server-", Config),
+	    make_cert_files(Config),
 	    Config;
 	Other ->
 	    Other
@@ -314,7 +315,7 @@ http_proxy_auth(doc) ->
 http_proxy_auth(Config) when is_list(Config) ->
     %% Our proxy seems to ignore the header, however our proxy
     %% does not requirer an auth header, but we want to know
-    %% atleast the code for sending the header does not crash!
+    %% at least the code for sending the header does not crash!
     Method = get,
     URL = url("/index.html", Config),
     Request = {URL,[]},
@@ -445,6 +446,21 @@ https_connect_error(Config) when is_list(Config) ->
 	httpc:request(Method, Request, HttpOpts, Opts).
 
 %%--------------------------------------------------------------------
+http_timeout(doc) ->
+    ["Test http/https connect and upgrade timeouts."];
+http_timeout(Config) when is_list(Config) ->
+    Method = get,
+    URL = url("/index.html", Config),
+    Request = {URL,[]},
+    Timeout = timer:seconds(1),
+    HttpOpts1 = [{timeout, Timeout}, {connect_timeout, 0}],
+    {error,
+     {failed_connect,
+      [{to_address,{"localhost",8000}},
+       {inet,[inet],timeout}]}}
+	= httpc:request(Method, Request, HttpOpts1, []),
+    ok.
+%%--------------------------------------------------------------------
 %% Internal Functions ------------------------------------------------
 %%--------------------------------------------------------------------
 
@@ -489,16 +505,20 @@ app_start(App, Config) ->
 app_stop(App) ->
     application:stop(App).
 
-make_cert_files(Alg, Prefix, Config) ->
-    PrivDir = proplists:get_value(priv_dir, Config),
-    CaInfo = {CaCert,_} = erl_make_certs:make_cert([{key,Alg}]),
-    {Cert,CertKey} = erl_make_certs:make_cert([{key,Alg},{issuer,CaInfo}]),
-    CaCertFile = filename:join(PrivDir, Prefix++"cacerts.pem"),
-    CertFile = filename:join(PrivDir, Prefix++"cert.pem"),
-    KeyFile = filename:join(PrivDir, Prefix++"key.pem"),
-    der_to_pem(CaCertFile, [{'Certificate', CaCert, not_encrypted}]),
-    der_to_pem(CertFile, [{'Certificate', Cert, not_encrypted}]),
-    der_to_pem(KeyFile, [CertKey]),
+make_cert_files(Config) ->
+    ClientFileBase = filename:join([proplists:get_value(priv_dir, Config), "client"]),
+    ServerFileBase = filename:join([proplists:get_value(priv_dir, Config), "server"]),
+    GenCertData =
+        public_key:pkix_test_data(#{server_chain =>
+                                        #{root => [{key, inets_test_lib:hardcode_rsa_key(1)}],
+                                          intermediates => [[{key, inets_test_lib:hardcode_rsa_key(2)}]],
+                                          peer => [{key, inets_test_lib:hardcode_rsa_key(3)}
+                                                  ]},
+                                    client_chain =>
+                                        #{root => [{key, inets_test_lib:hardcode_rsa_key(4)}],
+                                          intermediates => [[{key, inets_test_lib:hardcode_rsa_key(5)}]],
+                                          peer => [{key, inets_test_lib:hardcode_rsa_key(6)}]}}),
+    inets_test_lib:gen_pem_config_files(GenCertData, ClientFileBase, ServerFileBase),
     ok.
 
 der_to_pem(File, Entries) ->

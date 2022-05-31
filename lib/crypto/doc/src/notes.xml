@@ -4,7 +4,7 @@
 <chapter>
   <header>
     <copyright>
-      <year>1999</year><year>2020</year>
+      <year>1999</year><year>2021</year>
       <holder>Ericsson AB. All Rights Reserved.</holder>
     </copyright>
     <legalnotice>
@@ -30,6 +30,337 @@
     <file>notes.xml</file>
   </header>
   <p>This document describes the changes made to the Crypto application.</p>
+
+<section><title>Crypto 5.1</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+	    <p>Fix timing bug in ensure_engine_loaded</p> <p>When two
+	    ensure_engine_loaded() calls were done in parallel there
+	    was a possibility that a crypto lib function was called
+	    by both instead of just one of them which resulted in an
+	    error. This is solved by moving the implementation from
+	    erlang down into a NIF function that uses a mutex to
+	    protect the sensitive part.</p>
+          <p>
+	    Own Id: OTP-17858 Aux Id: ERIERL-728 </p>
+        </item>
+        <item>
+          <p>
+	    Remove faulty types <c>run_time_error()</c> and
+	    <c>descriptive_error()</c>.</p>
+          <p>
+	    Own Id: OTP-17984</p>
+        </item>
+      </list>
+    </section>
+
+
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+          <p>
+	    Input for <c>configure</c> scripts adapted to
+	    <c>autoconf</c> 2.71.</p>
+          <p>
+	    Own Id: OTP-17414 Aux Id: PR-4967 </p>
+        </item>
+        <item>
+          <p>
+	    Add crypto:hash_equals/2</p>
+          <p>
+	    Own Id: OTP-17471 Aux Id: PR-4750 </p>
+        </item>
+        <item>
+          <p>
+	    Add /opt/homebrew/opt/openssl to standard locations to
+	    search for OpenSSL cryptolib.</p>
+          <p>
+	    Own Id: OTP-17561</p>
+        </item>
+        <item>
+          <p>
+	    <c>crypto_dyn_iv_init/3</c> and
+	    <c>crypto_dyn_iv_update/3</c> are deprecated.</p>
+          <p>
+	    Own Id: OTP-17870</p>
+        </item>
+        <item>
+          <p>
+	    The information in error messages are increased.</p>
+          <p>
+	    Previously the error was signaled with en error class
+	    exception <c>badarg</c>, <c>notsup</c> or <c>error</c>,
+	    and also in some more ways like an other exception or a
+	    return value in a non-standardized format.</p>
+          <p>
+	    Now it is an error-class exception
+	    <c>{notsup|badarg|error, InfoFromCfile,
+	    Description::string()}</c>.</p>
+          <p>
+	    The <c>InfoFromCfile</c> is a term with name and line
+	    number of the C-file where the error was found. This is
+	    primarily intended for a crypto maintainer or an advanced
+	    user to find the cause of complicated errors - maybe in
+	    crypto itself. The contents of that term might be changed
+	    in the future.</p>
+          <p>
+	    The <c>Description</c> is a clear text string that
+	    describes the error. In case of <c>badarg</c> and
+	    <c>notsup</c> the intention is that it should help the
+	    user to find the cause ("Bad key size" as an example).
+	    Specially for some <c>error</c> that are unlikely, the
+	    string may not be possible to understand without deep
+	    knowledge of the underlying cryptolib. Such messages are
+	    intended for a crypto maintainer.</p>
+          <p>
+	    The first element on call stack (the <c>S</c> in <c>try
+	    ... catch error:E:S .... end</c>) gives more information
+	    like the actual argument list in the call of crypto and
+	    the argument number (if possible) in the call to the NIF
+	    inside crypto.</p>
+          <p>
+	    The functions in crypto affected by this change are:</p>
+          <p>
+	    sign/4, sign/5, verify/5, verify/6,</p>
+          <p>
+	    generate_key/2, generate_key/3, compute_key/4,</p>
+          <p>
+	    hash/2, hash/4, hash_init/1, hash_update/4, hash_final/1,</p>
+          <p>
+	    mac/3,4, mac_init/3, mac_update/2, mac_final/2,</p>
+          <p>
+	    pbkdf2_hmac/5,</p>
+          <p>
+	    public_encrypt/4, private_decrypt/4, private_encrypt/4,
+	    public_decrypt/4</p>
+          <p>
+	    This schema was introduced earlier in:</p>
+          <p>
+	    crypto_init/3, crypto_init/4, crypto_update/2,
+	    crypto_final/1, crypto_get_data/1,</p>
+          <p>
+	    crypto_one_time/4, crypto_one_time/5,
+	    crypto_one_time_aead/6, crypto_one_time_aead/7</p>
+          <p>
+	    *** POTENTIAL INCOMPATIBILITY ***</p>
+          <p>
+	    Own Id: OTP-17965</p>
+        </item>
+        <item>
+          <p>
+	    Add Output Feedback mode (OFB) support for AES encryption
+	    / decryption for key sizes of 128, 192 and 256 bits.</p>
+          <p>
+	    Own Id: OTP-18067 Aux Id: PR-5866 </p>
+        </item>
+        <item>
+          <p>
+	    The cryptolib API deprecated in OpenSSL 3.0 is now no
+	    longer used with a few exceptions listed below.</p>
+          <p>
+	    Although OpenSSL 3.0.x itself is stable, its usage in
+	    OTP/crypto should still not be considered suitable for
+	    production code.</p>
+          <p>
+	    The use of ENGINEs is still disabled by default when
+	    using 3.0.</p>
+          <p>
+	    Deprecated functions are still called in the
+	    otp_test_engine.c (only used in tests), in mac.c
+	    (EVP_PKEY_new_CMAC_key) and five function calls in ec.c
+	    (EVP_PKEY_assign, EC_KEY_get_conv_form,
+	    EVP_PKEY_get1_EC_KEY, EC_KEY_get0_group and
+	    EC_KEY_set_public_key).</p>
+          <p>
+	    Own Id: OTP-18086 Aux Id: OTP-16282, OTP-16643,
+	    OTP-16644, OTP-17701, OTP-17702, OTP-17704 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Crypto 5.0.6</title>
+
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+          <p>
+	    The crypto app in OTP can since OTP-24.2 be compiled,
+	    linked and used with the new OpenSSL 3.0 cryptolib.</p>
+          <p>
+	    The crypto app has 3.0 support has been improved, but is
+	    still <em>*not recommended*</em> for other usages than
+	    experiments and alpha testing. There are not yet any
+	    guaranties that it works, not even together with other
+	    OTP applications like for example SSL and SSH, although
+	    there are no known errors.</p>
+          <p>
+	    Since the previous release, OTP-24.2, the following
+	    improvements have been done:</p>
+          <p>
+	    - It has been tested during nearly every nightly test on
+	    the OTP lab</p>
+          <p>
+	    - The hash algorithms <c>md4</c> and <c>ripemd160</c>
+	    have been enabled with OpenSSL 3.0.</p>
+          <p>
+	    - The ciphers <c>blowfish_cbc</c>, <c>blowfish_ecb</c>,
+	    <c>des_cbc</c>, <c>des_cfb</c>, <c>des_ecb</c>,
+	    <c>rc2_cbc</c> and <c>rc4</c> have been enabled with
+	    OpenSSL 3.0.</p>
+          <p>
+	    Disabled or unsupported with OpenSSL 3.0 are still:</p>
+          <p>
+	    - ENGINE support</p>
+          <p>
+	    - FIPS mode</p>
+          <p>
+	    - Other providers than the built-in ones</p>
+          <p>
+	    - Compiling and linking with OpenSSL 3.0 cryptolib in
+	    compatibility modes (for example to behave as 1.1.1) </p>
+          <p>
+	    and, the ciphers <c>blowfish_cfb64</c> and
+	    <c>blowfish_ofb64</c> are not supported and will not be
+	    either.</p>
+          <p>
+	    Deprecated functions in the OpenSSL 3.0 cryptolib must
+	    not be disabled as OTP/crypto still uses some of the
+	    deprecated API functions. The gcc flag
+	    <c>-Wno-deprecated-declarations</c> is set to prevent
+	    deprecation warnings to be printed when compiling.</p>
+          <p>
+	    Own Id: OTP-17812 Aux Id: OTP-16646, OTP-16282 </p>
+        </item>
+        <item>
+          <p>
+	    Crypto is adapted to LibreSSL 3.5.0 on OpenBSD.</p>
+          <p>
+	    Own Id: OTP-17941 Aux Id: OTP-17942 </p>
+        </item>
+        <item>
+          <p>
+	    New configure option ( <c>--disable-otp-test-engine</c>)
+	    to prohibit the build of the OTP test engine used in some
+	    test suites.</p>
+          <p>
+	    The reason is that the test engine could be hard to
+	    compile on for instance LibreSSL 3.5.0. For that
+	    particular cryptolib version (or higher), this configure
+	    option is set automatically.</p>
+          <p>
+	    Own Id: OTP-17942 Aux Id: OTP-17941 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
+
+<section><title>Crypto 5.0.5</title>
+
+    <section><title>Fixed Bugs and Malfunctions</title>
+      <list>
+        <item>
+          <p>
+	    Fixed the C-warning "implicit declaration of function
+	    'OpenSSL_version_num'" if compiling with an early
+	    LibreSSL version.</p>
+          <p>
+	    Own Id: OTP-17637</p>
+        </item>
+        <item>
+          <p>
+	    FIPS availability was not checked correctly for AEAD
+	    ciphers.</p>
+          <p>
+	    Own Id: OTP-17740</p>
+        </item>
+        <item>
+          <p>
+	    Fixed that cipher aliases (like aes_cbc etc) could be
+	    present even if the aliased cipher(s) (like aes_128_cbc,
+	    aes_256_cbc,... etc) was missing.</p>
+          <p>
+	    Own Id: OTP-17741</p>
+        </item>
+      </list>
+    </section>
+
+
+    <section><title>Improvements and New Features</title>
+      <list>
+        <item>
+          <p>
+	    The crypto app in OTP can now be compiled, linked and
+	    used with the new OpenSSL 3.0 cryptolib.</p>
+          <p>
+	    It has not yet been extensively tested and is in this
+	    release <em>*not recommended*</em> for other usages than
+	    experiments and alpha testing. There are not yet any
+	    guaranties that it works, not even together with other
+	    OTP applications like for example SSL and SSH, although
+	    there are no known errors.</p>
+          <p>
+	    Compiling and linking with OpenSSL 3.0 cryptolib in
+	    compatibility modes (for example to behave as 1.1.1) are
+	    not tested. It is not tested with external providers.</p>
+          <p>
+	    The support for FIPS mode does not yet work, and is
+	    disabled when compiled with OpenSSL 3.0.</p>
+          <p>
+	    Deprecated functions in the OpenSSL 3.0 cryptolib must
+	    not be disabled as OTP/crypto still uses some of the
+	    deprecated API functions. The gcc flag
+	    <c>-Wno-deprecated-declarations</c> is set to prevent
+	    deprecation warnings to be printed when compiling.</p>
+          <p>
+	    The hash algorithms <c>md4</c> and <c>ripemd160</c> are
+	    disabled temporarily when compiled with OpenSSL 3.0.</p>
+          <p>
+	    The ciphers <c>blowfish_cbc</c>, <c>blowfish_cfb64</c>,
+	    <c>blowfish_ecb</c>, <c>blowfish_ofb64</c>,
+	    <c>des_cbc</c>, <c>des_cfb</c>, <c>des_ecb</c>,
+	    <c>rc2_cbc</c> and <c>rc4</c> are disabled temporarily
+	    when compiled with OpenSSL 3.0.</p>
+          <p>
+	    Own Id: OTP-16646 Aux Id: OTP-16282 </p>
+        </item>
+        <item>
+          <p>
+	    The error handling in crypto is partly refactored using
+	    the new error reporting support. Errors earlier
+	    propagated like exceptions are still so, but when the
+	    failing function is called from the terminal - for
+	    example during failure hunting - a more descriptive text
+	    is produced.</p>
+          <p>
+	    Own Id: OTP-17241</p>
+        </item>
+        <item>
+          <p>
+	    A new function <c>crypto:info/0</c> which presents some
+	    data about the compilation and linkage of the crypto nif
+	    is added.</p>
+          <p>
+	    Own Id: OTP-17603</p>
+        </item>
+        <item>
+          <p>
+	    Added the <c>pbkdf2_hmac/5</c> function to the crypto
+	    module.</p>
+          <p>
+	    It calls the <c>PKCS5_PBKDF2_HMAC</c> function which
+	    implements PBKD2 with HMAC in an efficient way.</p>
+          <p>
+	    Own Id: OTP-17808 Aux Id: PR-5421 </p>
+        </item>
+      </list>
+    </section>
+
+</section>
 
 <section><title>Crypto 5.0.4</title>
 
@@ -632,7 +963,7 @@
       <list>
         <item>
           <p>
-	    The chipers aes_cfb8 and aes_cfb128 are now using the EVP
+	    The ciphers aes_cfb8 and aes_cfb128 are now using the EVP
 	    interface. The supported key lengths are 128, 192 and 256
 	    bits.</p>
           <p>
@@ -640,7 +971,7 @@
         </item>
         <item>
           <p>
-	    The chipers aes_cfb8 and aes_cfb128 are now available in
+	    The ciphers aes_cfb8 and aes_cfb128 are now available in
 	    FIPS enabled mode.</p>
           <p>
 	    Own Id: OTP-16134 Aux Id: PR-2407 </p>
@@ -749,7 +1080,7 @@
       <list>
         <item>
           <p>
-	    The cipher aes-ctr was disabled by misstake in
+	    The cipher aes-ctr was disabled by mistake in
 	    crypto:supports for cryptolibs before 1.0.1. It worked
 	    however in the encrypt and decrypt functions.</p>
           <p>
@@ -927,7 +1258,7 @@
       <list>
         <item>
           <p>
-	    The chipers aes_cfb8 and aes_cfb128 are now using the EVP
+	    The ciphers aes_cfb8 and aes_cfb128 are now using the EVP
 	    interface. The supported key lengths are 128, 192 and 256
 	    bits.</p>
           <p>
@@ -935,7 +1266,7 @@
         </item>
         <item>
           <p>
-	    The chipers aes_cfb8 and aes_cfb128 are now available in
+	    The ciphers aes_cfb8 and aes_cfb128 are now available in
 	    FIPS enabled mode.</p>
           <p>
 	    Own Id: OTP-16134 Aux Id: PR-2407 </p>
@@ -1256,7 +1587,7 @@
       <list>
         <item>
           <p>
-	    The chipers aes_cfb8 and aes_cfb128 are now using the EVP
+	    The ciphers aes_cfb8 and aes_cfb128 are now using the EVP
 	    interface. The supported key lengths are 128, 192 and 256
 	    bits.</p>
           <p>
@@ -2391,7 +2722,7 @@
 	    Own Id: OTP-8551</p>
         </item>
         <item>
-	    <p>The undocumented, unsupport, and deprecated function
+	    <p>The undocumented, unsupported, and deprecated function
 	    <c>lists:flat_length/1</c> has been removed.</p>
           <p>
 	    Own Id: OTP-8584</p>
@@ -2674,7 +3005,7 @@
       <list>
         <item>
           <p>
-	    crypto and zlib drivers improved to allow concurent smp
+	    crypto and zlib drivers improved to allow concurrent smp
 	    access.</p>
           <p>
 	    Own Id: OTP-7262</p>

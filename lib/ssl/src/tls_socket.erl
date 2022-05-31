@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1998-2020. All Rights Reserved.
+%% Copyright Ericsson AB 1998-2022. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -105,15 +105,7 @@ accept(ListenSocket, #config{transport_info = {Transport,_,_,_,_} = CbInfo,
             Tracker = proplists:get_value(option_tracker, Trackers),
             {ok, EmOpts} = get_emulated_opts(Tracker),
 	    {ok, Port} = tls_socket:port(Transport, Socket),
-            {ok, Sender} = tls_sender:start(),
-            ConnArgs = [server, Sender, "localhost", Port, Socket,
-			{SslOpts, emulated_socket_options(EmOpts, #socket_options{}), Trackers}, self(), CbInfo],
-	    case tls_connection_sup:start_child(ConnArgs) of
-		{ok, Pid} ->
-		    ssl_gen_statem:socket_control(ConnectionCb, Socket, [Pid, Sender], Transport, Trackers);
-		{error, Reason} ->
-		    {error, Reason}
-	    end;
+            start_tls_server_connection(SslOpts, ConnectionCb, Transport, Port, Socket, EmOpts, Trackers, CbInfo);
 	{error, Reason} ->
 	    {error, Reason}
     end.
@@ -156,7 +148,7 @@ connect(Address, Port,
 
 socket(Pids, Transport, Socket, ConnectionCb, Trackers) ->
     #sslsocket{pid = Pids, 
-	       %% "The name "fd" is keept for backwards compatibility
+	       %% "The name "fd" is kept for backwards compatibility
 	       fd = {Transport, Socket, ConnectionCb, Trackers}}.
 setopts(gen_tcp, Socket = #sslsocket{pid = {ListenSocket, #config{trackers = Trackers}}}, Options) ->
     Tracker = proplists:get_value(option_tracker, Trackers),
@@ -398,6 +390,19 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 call(Pid, Msg) ->
     gen_server:call(Pid, Msg, infinity).
+
+start_tls_server_connection(#{sender_spawn_opts := SenderOpts} = SslOpts, ConnectionCb, Transport, Port, Socket, EmOpts, Trackers, CbInfo) ->    
+    try
+        {ok, DynSup} = tls_connection_sup:start_child([]),
+        {ok, Sender} = tls_dyn_connection_sup:start_child(DynSup, sender, [[{spawn_opt, SenderOpts}]]),
+        ConnArgs = [server, Sender, "localhost", Port, Socket,
+                    {SslOpts, emulated_socket_options(EmOpts, #socket_options{}), Trackers}, self(), CbInfo],
+        {ok, Pid} = tls_dyn_connection_sup:start_child(DynSup, receiver, ConnArgs),
+        ssl_gen_statem:socket_control(ConnectionCb, Socket, [Pid, Sender], Transport, Trackers)
+    catch
+	error:{badmatch, {error, _} = Error} ->
+            Error
+    end.
 
 split_options(Opts) ->
     split_options(Opts, emulated_options(), [], []).

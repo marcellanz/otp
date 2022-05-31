@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1996-2018. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2022. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -45,7 +45,7 @@
 -type cookie() :: atom().
 -record(state, {
 	  our_cookie    :: cookie(),  %% Our own cookie
-	  other_cookies :: ets:tab()  %% The send-cookies of other nodes
+	  other_cookies :: ets:table()%% The send-cookies of other nodes
 	 }).
 -type state() :: #state{}.
 
@@ -104,31 +104,52 @@ node_cookie(Node, Cookie) ->
 -spec get_cookie() -> 'nocookie' | cookie().
 
 get_cookie() ->
-    get_cookie(node()).
+    case whereis(auth) of
+        undefined ->
+            nocookie;
+        AuthPid ->
+            gen_server:call(AuthPid, get_our_cookie, infinity)
+    end.
 
 -spec get_cookie(Node :: node()) -> 'nocookie' | cookie().
 
-get_cookie(Node) when Node =:= nonode@nohost ->
-    nocookie;
+get_cookie(Node) when Node =:= node() ->
+    get_cookie();
 get_cookie(Node) ->
-    gen_server:call(auth, {get_cookie, Node}, infinity).
+    case whereis(auth) of
+        undefined ->
+            nocookie;
+        AuthPid ->
+            gen_server:call(AuthPid, {get_cookie, Node}, infinity)
+    end.
 
 -spec set_cookie(Cookie :: cookie()) -> 'true'.
 
 set_cookie(Cookie) ->
-    set_cookie(node(), Cookie).
+    case whereis(auth) of
+        undefined ->
+            erlang:error(distribution_not_started);
+        AuthPid ->
+            gen_server:call(AuthPid, {set_our_cookie, Cookie}, infinity)
+    end.
 
 -spec set_cookie(Node :: node(), Cookie :: cookie()) -> 'true'.
 
-set_cookie(_Node, _Cookie) when node() =:= nonode@nohost ->
-    erlang:error(distribution_not_started);
+set_cookie(Node, Cookie) when Node =:= node() ->
+    set_cookie(Cookie);
 set_cookie(Node, Cookie) ->
-    gen_server:call(auth, {set_cookie, Node, Cookie}, infinity).
+    case whereis(auth) of
+        undefined ->
+            erlang:error(distribution_not_started);
+        AuthPid ->
+            gen_server:call(AuthPid, {set_cookie, Node, Cookie}, infinity)
+    end.
 
 -spec sync_cookie() -> any().
 
 sync_cookie() ->
     gen_server:call(auth, sync_cookie, infinity).
+
 
 -spec print(Node :: node(), Format :: string(), Args :: [_]) -> 'ok'.
 
@@ -154,7 +175,7 @@ init([]) ->
 -spec handle_call(calls(), {pid(), term()}, state()) ->
         {'reply', 'hello' | 'true' | 'nocookie' | cookie(), state()}.
 
-handle_call({get_cookie, Node}, {_From,_Tag}, State) when Node =:= node() ->
+handle_call(get_our_cookie, {_From,_Tag}, State) ->
     {reply, State#state.our_cookie, State};
 handle_call({get_cookie, Node}, {_From,_Tag}, State) ->
     case ets:lookup(State#state.other_cookies, Node) of
@@ -163,8 +184,7 @@ handle_call({get_cookie, Node}, {_From,_Tag}, State) ->
 	[] ->
 	    {reply, State#state.our_cookie, State}
     end;
-handle_call({set_cookie, Node, Cookie}, {_From,_Tag}, State) 
-  when Node =:= node() ->
+handle_call({set_our_cookie, Cookie}, {_From,_Tag}, State) ->
     {reply, true, State#state{our_cookie = Cookie}};
 
 %%
@@ -355,26 +375,64 @@ init_setcookie([], OurCookies, OtherCookies) ->
 ets_new_cookies() ->
     ets:new(cookies, [?COOKIE_ETS_PROTECTION]).
 
+%% Read cookie from:
+%%  1. $HOME/.erlang.cookie
+%%  2. $XDG_CONFIG_HOME/erlang/.erlang.cookie
+%%
+%% If neither are present, we generate $HOME/.erlang.cookie
 read_cookie() ->
+    XDGPath = filename:join(
+                filename:basedir(user_config, "erlang"),
+                ".erlang.cookie"),
     case init:get_argument(home) of
 	{ok, [[Home]]} ->
-	    read_cookie(filename:join(Home, ".erlang.cookie"));
+            HomePath = filename:join(Home, ".erlang.cookie"),
+	    case read_cookie(HomePath) of
+                {error, enoent} ->
+                    case read_cookie(XDGPath) of
+                        {error, enoent} ->
+                            case create_cookie(HomePath) of
+                                ok ->
+                                    {ok, Cookie} = read_cookie(HomePath),
+                                    Cookie;
+                                Error -> Error
+                            end;
+                        {ok, Cookie} ->
+                            Cookie;
+                        Error ->
+                            Error
+                    end;
+                {ok, Cookie} ->
+                    Cookie;
+                Error ->
+                    Error
+            end;
 	_ ->
-	    {error, "No home for cookie file"}
+            %% Failed to read find home, try xdg path
+            case read_cookie(XDGPath) of
+                {error, enoent} ->
+                    case create_cookie(XDGPath) of
+                        ok ->
+                            {ok, Cookie} = read_cookie(XDGPath),
+                            Cookie;
+                        Error -> Error
+                    end;
+                {ok, Cookie} ->
+                    Cookie;
+                _Error ->
+                    {error, "No home for cookie file"}
+            end
     end.
 
 read_cookie(Name) ->
     case file:raw_read_file_info(Name) of
 	{ok, #file_info {type=Type, mode=Mode, size=Size}} ->
 	    case check_attributes(Name, Type, Mode, os:type()) of
-		ok -> read_cookie(Name, Size);
+		ok -> {ok, read_cookie(Name, Size)};
 		Error -> Error
 	    end;
-	{error, enoent} ->
-	    case create_cookie(Name) of
-		ok -> read_cookie(Name);
-		Error -> Error
-	    end;
+        {error, enoent} ->
+            {error, enoent};
 	{error, Reason} ->
 	    {error, make_error(Name, Reason)}
     end.
@@ -434,24 +492,24 @@ create_cookie(Name) ->
 	       bxor erlang:unique_integer()),
     Cookie = random_cookie(20, Seed, []),
     case file:open(Name, [write, raw]) of
-	{ok, File} ->
-	    R1 = file:write(File, Cookie),
-	    ok = file:close(File),
-	    R2 = file:raw_write_file_info(Name, make_info(Name)),
-	    case {R1, R2} of
-		{ok, ok} ->
-		    ok;
-		{{error,Reason}, _} ->
-		    {error,
-		     lists:flatten(
-		       io_lib:format("Failed to write to cookie file '~ts': ~p", [Name, Reason]))};
-		{ok, {error, Reason}} ->
-		    {error, "Failed to change mode: " ++ atom_to_list(Reason)}
-	    end;
-	{error,Reason} ->
-	    {error,
-	     lists:flatten(
-	       io_lib:format("Failed to create cookie file '~ts': ~p", [Name, Reason]))}
+        {ok, File} ->
+            R1 = file:write(File, Cookie),
+            ok = file:close(File),
+            R2 = file:raw_write_file_info(Name, make_info(Name)),
+            case {R1, R2} of
+                {ok, ok} ->
+                    ok;
+                {{error,Reason}, _} ->
+                    {error,
+                     lists:flatten(
+                       io_lib:format("Failed to write to cookie file '~ts': ~p", [Name, Reason]))};
+                {ok, {error, Reason}} ->
+                    {error, "Failed to change mode: " ++ atom_to_list(Reason)}
+            end;
+        {error,Reason} ->
+            {error,
+             lists:flatten(
+               io_lib:format("Failed to create cookie file '~ts': ~p", [Name, Reason]))}
     end.
 
 random_cookie(0, _, Result) ->

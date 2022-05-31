@@ -1,7 +1,7 @@
 %% 
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1996-2020. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2021. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -22,12 +22,11 @@
 
 -include_lib("kernel/include/file.hrl").
 -include("snmp_types.hrl").
+-include("snmp_usm.hrl").
 
 %% Avoid warning for local function error/1 clashing with autoimported BIF.
 -compile({no_auto_import,[error/1]}).
 -export([config/0]).
-
-%%-export([write_config_file/4, append_config_file/4, read_config_file/4]).
 
 -export([write_config_file/6, append_config_file/6, read_config_file/4]).
 
@@ -505,7 +504,7 @@ config_agent_transports(ID) ->
     config_agent_transports(ID, []).
 
 config_agent_transports(ID, []) ->
-    i(ID ++ ". Configure atleast one transport: "),
+    i(ID ++ ". Configure at least one transport: "),
     T = config_agent_transport(ID),
     config_agent_transports(ID, [T]);
 config_agent_transports(ID, Acc) ->
@@ -946,7 +945,8 @@ config_manager_snmp_usm() ->
     UserName = ask("7b. User name?", mandatory, fun verify_usm_name/1),
     SecName  = ask("7c. Security name?", UserName,
 		   fun verify_usm_sec_name/1),
-    AuthP    = ask("7d. Authentication protocol (no/sha/md5)?", "no",
+    AuthP    = ask("7d. Authentication protocol "
+                     "(no/md5/sha/sha224/sha256/sha384/sha512)?", "no",
 		   fun verify_usm_auth_protocol/1),
     AuthKey  = ask_auth_key("7e", AuthP), 
     PrivP    = ask("7e. Priv protocol (no/des/aes)?", "no",
@@ -1027,12 +1027,36 @@ default_dir(Component, DefDir) ->
 
 ask_auth_key(_Prefix, usmNoAuthProtocol) ->
     "";
+ask_auth_key(Prefix, usmHMACMD5AuthProtocol) ->
+    ask(Prefix ++ "  Authentication [md5] key (length 0 or 16)?", "\"\"",
+	fun verify_usm_auth_md5_key/1);
 ask_auth_key(Prefix, usmHMACSHAAuthProtocol) ->
     ask(Prefix ++ "  Authentication [sha] key (length 0 or 20)?", "\"\"",
 	fun verify_usm_auth_sha_key/1);
-ask_auth_key(Prefix, usmHMACMD5AuthProtocol) ->
-    ask(Prefix ++ "  Authentication [md5] key (length 0 or 16)?", "\"\"",
-	fun verify_usm_auth_md5_key/1).
+ask_auth_key(Prefix, usmHMAC128SHA224AuthProtocol) ->
+    ask(Prefix ++ 
+            f("  Authentication [~w] key (length 0 or ~w)?",
+              [sha224, ?usmHMAC128SHA224AuthProtocol_secret_key_length]),
+        "\"\"",
+	fun verify_usm_auth_sha224_key/1);
+ask_auth_key(Prefix, usmHMAC192SHA256AuthProtocol) ->
+    ask(Prefix ++ 
+            f("  Authentication [~w] key (length 0 or ~w)?",
+              [sha256, ?usmHMAC192SHA256AuthProtocol_secret_key_length]),
+        "\"\"",
+	fun verify_usm_auth_sha256_key/1);
+ask_auth_key(Prefix, usmHMAC256SHA384AuthProtocol) ->
+    ask(Prefix ++ 
+            f("  Authentication [~w] key (length 0 or ~w)?",
+              [sha384, ?usmHMAC256SHA384AuthProtocol_secret_key_length]),
+        "\"\"",
+	fun verify_usm_auth_sha384_key/1);
+ask_auth_key(Prefix, usmHMAC384SHA512AuthProtocol) ->
+    ask(Prefix ++ 
+            f("  Authentication [~w] key (length 0 or ~w)?",
+              [sha512, ?usmHMAC384SHA512AuthProtocol_secret_key_length]),
+        "\"\"",
+	fun verify_usm_auth_sha512_key/1).
 
 ask_priv_key(_Prefix, usmNoPrivProtocol) ->
     "";
@@ -1079,7 +1103,7 @@ verify_max_message_size(MMS) ->
 	I when is_integer(I) andalso (I >= 484) ->
 	    {ok, I};
 	I when is_integer(I) ->
-	    {error, "invalid max message size (must be atleast 484): " ++ MMS};
+	    {error, "invalid max message size (must be at least 484): " ++ MMS};
 	_ ->
 	    {error, "invalid max message size: " ++ MMS}
     end.
@@ -1143,7 +1167,7 @@ verify_db_init_error(R) ->
 
 verify_notif_type("trap")   -> {ok, trap};
 verify_notif_type("inform") -> {ok, inform};
-verify_notif_type(NT)       -> {error, "invalid notifcation type: " ++ NT}.
+verify_notif_type(NT)       -> {error, "invalid notification type: " ++ NT}.
 
 
 verify_sec_type("none")     -> {ok, none};
@@ -1545,18 +1569,38 @@ verify_usm_sec_name(Name) ->
 
 verify_usm_auth_protocol("no") ->
     {ok, usmNoAuthProtocol};
-verify_usm_auth_protocol("sha") ->
-    {ok, usmHMACSHAAuthProtocol};
 verify_usm_auth_protocol("md5") ->
     {ok, usmHMACMD5AuthProtocol};
+verify_usm_auth_protocol("sha") ->
+    {ok, usmHMACSHAAuthProtocol};
+verify_usm_auth_protocol("sha224") ->
+    {ok, usmHMAC128SHA224AuthProtocol};
+verify_usm_auth_protocol("sha256") ->
+    {ok, usmHMAC192SHA256AuthProtocol};
+verify_usm_auth_protocol("sha384") ->
+    {ok, usmHMAC256SHA384AuthProtocol};
+verify_usm_auth_protocol("sha512") ->
+    {ok, usmHMAC384SHA512AuthProtocol};
 verify_usm_auth_protocol(AuthP) ->
     {error, "invalid auth protocol: " ++ AuthP}.
+
+verify_usm_auth_md5_key(Key) ->
+    verify_usm_key("auth md5", Key, 16).
 
 verify_usm_auth_sha_key(Key) ->
     verify_usm_key("auth sha", Key, 20).
 
-verify_usm_auth_md5_key(Key) ->
-    verify_usm_key("auth md5", Key, 16).
+verify_usm_auth_sha224_key(Key) ->
+    verify_usm_key("auth sha224", Key, ?usmHMAC128SHA224AuthProtocol_secret_key_length).
+
+verify_usm_auth_sha256_key(Key) ->
+    verify_usm_key("auth sha256", Key, ?usmHMAC192SHA256AuthProtocol_secret_key_length).
+
+verify_usm_auth_sha384_key(Key) ->
+    verify_usm_key("auth sha384", Key, ?usmHMAC256SHA384AuthProtocol_secret_key_length).
+
+verify_usm_auth_sha512_key(Key) ->
+    verify_usm_key("auth sha512", Key, ?usmHMAC384SHA512AuthProtocol_secret_key_length).
 
 verify_usm_priv_protocol("no") ->
     {ok, usmNoPrivProtocol};
@@ -2604,7 +2648,7 @@ write_sys_config_file_agent_config_opt(Fid, {verbosity, Verb}) ->
     ok = io:format(Fid, "{verbosity, ~w}", [Verb]).
 
 
-%% This is only present if there is atleast one option
+%% This is only present if there is at least one option
 write_sys_config_file_agent_atl_opts(Fid, [Opt]) ->
     write_sys_config_file_agent_atl_opt(Fid, Opt),
     ok = io:format(Fid, "]", []),
@@ -2626,7 +2670,7 @@ write_sys_config_file_agent_atl_opt(Fid, {seqno, SeqNo}) ->
     ok = io:format(Fid, "{seqno, ~w}", [SeqNo]).
 
 
-%% These options are allways there
+%% These options are always there
 write_sys_config_file_agent_disco_opts(Fid, [Opt]) ->
     write_sys_config_file_agent_disco_opt(Fid, Opt),
     ok = io:format(Fid, "]", []),
@@ -2732,7 +2776,7 @@ write_sys_config_file_manager_config_opt(Fid, {verbosity, Verb}) ->
     ok = io:format(Fid, "{verbosity, ~w}", [Verb]).
 
 
-%% This is only present if there is atleast one option
+%% This is only present if there is at least one option
 write_sys_config_file_manager_atl_opts(Fid, [Opt]) ->
     write_sys_config_file_manager_atl_opt(Fid, Opt),
     ok = io:format(Fid, "]", []),
@@ -2763,7 +2807,7 @@ header() ->
 		  [?MODULE, ?version, Y, Mo, D, H, Mi, S]).
 
 
-%% *If* these functions are successfull, they successfully return
+%% *If* these functions are successful, they successfully return
 %% (value is ignored), but they fail preferably with
 %% throw({error, Reason}).  Other exceptions are also handled.
 
@@ -2818,7 +2862,7 @@ write_config_file(Dir, FileName, Order, Check, Write, Entries)
 	    end
     catch
 	throw:E:S ->
-	    d("File write of ~s throwed: "
+	    d("File write of ~s thrown: "
               "~n   ~p"
               "~n   ~p"
               "~n", [FileName, E, S]),
@@ -2837,7 +2881,7 @@ write_config_file(Dir, FileName, Write, Entries, Fd) ->
 	    close_config_file(Dir, FileName, Fd)
     catch
 	throw:E:S ->
-	    d("File write of ~s throwed: "
+	    d("File write of ~s thrown: "
               "~n   ~p"
               "~n   ~p"
               "~n", [FileName, E, S]),
@@ -2910,7 +2954,7 @@ append_config_file(Dir, FileName, Order, Check, Write, Entries, Fd) ->
 	    close_config_file(Dir, FileName, Fd)
     catch
 	throw:E:S ->
-	    d("File append of ~s throwed: "
+	    d("File append of ~s thrown: "
               "~n   ~p"
               "~n   ~p"
               "~n", [FileName, E, S]),
@@ -2953,7 +2997,7 @@ read_config_file(Dir, FileName, Order, Check)
 		{ok, verify_lines(SortedLines, Check, undefined, [])}
 	    catch
 		throw:E:S ->
-		    d("File read of ~s throwed: "
+		    d("File read of ~s thrown: "
                       "~n   ~p"
                       "~n   ~p"
                       "~n", [FileName, E, S]),
@@ -3040,6 +3084,9 @@ ensure_started(App) ->
 
 
 %% -------------------------------------------------------------------------
+
+f(F, A) ->
+    lists:flatten(io_lib:format(F, A)).
 
 d(F, A) ->
     i("DBG: " ++ F, A).

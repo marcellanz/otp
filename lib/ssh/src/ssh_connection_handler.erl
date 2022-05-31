@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2008-2020. All Rights Reserved.
+%% Copyright Ericsson AB 2008-2022. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -86,7 +86,9 @@
 	]).
 
 -behaviour(ssh_dbg).
--export([ssh_dbg_trace_points/0, ssh_dbg_flags/1, ssh_dbg_on/1, ssh_dbg_off/1, ssh_dbg_format/2]).
+-export([ssh_dbg_trace_points/0, ssh_dbg_flags/1,
+         ssh_dbg_on/1, ssh_dbg_off/1,
+         ssh_dbg_format/2, ssh_dbg_format/3]).
 
 
 -define(call_disconnectfun_and_log_cond(LogMsg, DetailedText, StateName, D),
@@ -423,7 +425,7 @@ init([Role, Socket, Opts]) when Role==client ; Role==server ->
     end.
 
 %%%----------------------------------------------------------------
-%%% Connection start and initalization helpers
+%%% Connection start and initialization helpers
 
 init_connection_record(Role, Socket, Opts) ->
     {WinSz, PktSz} = init_inet_buffers_window(Socket),
@@ -514,7 +516,10 @@ handshake(Pid, Ref, Timeout) ->
 	{'DOWN', Ref, process, Pid, {shutdown, Reason}} ->
 	    {error, Reason};
 	{'DOWN', Ref, process, Pid, Reason} ->
-	    {error, Reason}
+	    {error, Reason};
+        {'EXIT',_,Reason} ->
+            stop(Pid),
+            {error, {exit,Reason}}
     after Timeout ->
 	    erlang:demonitor(Ref, [flush]),
 	    ssh_connection_handler:stop(Pid),
@@ -620,7 +625,7 @@ handle_event(internal, {version_exchange,Version}, {hello,Role}, D0) ->
     {NumVsn, StrVsn} = ssh_transport:handle_hello_version(Version),
     case handle_version(NumVsn, StrVsn, D0#data.ssh_params) of
 	{ok, Ssh1} ->
-	    %% Since the hello part is finnished correctly, we set the
+	    %% Since the hello part is finished correctly, we set the
 	    %% socket to the packet handling mode (including recbuf size):
 	    inet:setopts(D0#data.socket, [{packet,0},
 					 {mode,binary},
@@ -646,7 +651,7 @@ handle_event(state_timeout, no_hello_received, {hello,_Role}=StateName, D0 = #da
     Time = ?GET_OPT(hello_timeout, Ssh0#ssh.opts),
     {Shutdown, D} =
         ?send_disconnect(?SSH_DISCONNECT_PROTOCOL_ERROR,
-                         lists:concat(["No HELLO recieved within ",ssh_lib:format_time_ms(Time)]),
+                         lists:concat(["No HELLO received within ",ssh_lib:format_time_ms(Time)]),
                          StateName, D0),
     {stop, Shutdown, D};
 		  
@@ -934,7 +939,7 @@ handle_event({call,From}, {request, ChannelPid, ChannelId, Type, Data, Timeout},
         {error,Error} ->
             {keep_state, D0, {reply,From,{error,Error}}};
         D ->
-            %% Note reply to channel will happen later when reply is recived from peer on the socket
+            %% Note reply to channel will happen later when reply is received from peer on the socket
             start_channel_request_timer(ChannelId, From, Timeout),
             {keep_state, D, cond_set_idle_timer(D)}
     end;
@@ -945,7 +950,7 @@ handle_event({call,From}, {request, ChannelId, Type, Data, Timeout}, StateName, 
         {error,Error} ->
             {keep_state, D0, {reply,From,{error,Error}}};
         D ->
-            %% Note reply to channel will happen later when reply is recived from peer on the socket
+            %% Note reply to channel will happen later when reply is received from peer on the socket
             start_channel_request_timer(ChannelId, From, Timeout),
             {keep_state, D, cond_set_idle_timer(D)}
     end;
@@ -1237,7 +1242,7 @@ handle_event(info, {'EXIT', _Sup, Reason}, StateName, _D) ->
 	    {stop, {shutdown, Reason}};
 
 	Reason == normal ->
-	    %% An exit normal should not cause a server to crash. This has happend...
+	    %% An exit normal should not cause a server to crash. This has happened...
 	    keep_state_and_data;
 
 	true ->
@@ -1578,7 +1583,7 @@ handle_ssh_msg_ext_info(#ssh_msg_ext_info{data=Data}, D0) ->
 ext_info({"server-sig-algs",SigAlgsStr},
          D0 = #data{ssh_params=#ssh{role=client,
                                     userauth_pubkeys=ClientSigAlgs}=Ssh0}) ->
-    %% ClientSigAlgs are the pub_key algortithms that:
+    %% ClientSigAlgs are the pub_key algorithms that:
     %%  1) is usable, that is, the user has such a public key and
     %%  2) is either the default list or set by the caller
     %%     with the client option 'pref_public_key_algs'
@@ -1862,13 +1867,9 @@ log(Tag, D, Reason) ->
     end.
 
 
-do_log(F, Reason0, #data{ssh_params = S}) ->
-    Reason =
-        try io_lib:format("~s",[Reason0])
-        of _ -> Reason0
-        catch
-            _:_ -> io_lib:format("~p",[Reason0])
-        end,
+do_log(F, Reason0, #data{ssh_params=S}) ->
+    Reason1 = string:chomp(assure_string(Reason0)),
+    Reason = limit_size(Reason1, ?GET_OPT(max_log_item_len,S#ssh.opts)),
     case S of
         #ssh{role = Role} when Role==server ;
                                Role==client ->
@@ -1893,6 +1894,29 @@ do_log(F, Reason0, #data{ssh_params = S}) ->
                            [ssh_log_version(), crypto_log_info(), 
                             Reason])
     end.
+
+assure_string(S) ->
+    try io_lib:format("~s",[S])
+    of _ -> S
+    catch
+        _:_ -> io_lib:format("~p",[S])
+    end.
+
+limit_size(S, MaxLen) when is_integer(MaxLen) ->
+    limit_size(S, lists:flatlength(S), MaxLen);
+limit_size(S, _) ->
+    S.
+
+limit_size(S, Len, MaxLen) when Len =< MaxLen ->
+    S;
+limit_size(S, Len, MaxLen) when Len =< (MaxLen + 5) ->
+    %% Looks silly with e.g "... (2 bytes skipped)"
+    S;
+limit_size(S, Len, MaxLen) when Len > MaxLen ->
+    %% Cut
+    io_lib:format("~s ... (~w bytes skipped)", 
+                  [string:substr(lists:flatten(S), 1, MaxLen),
+                   Len-MaxLen]).
 
 crypto_log_info() ->
     try 
@@ -2018,11 +2042,12 @@ update_inet_buffers(Socket) ->
 %%%#
 
 ssh_dbg_trace_points() -> [terminate, disconnect, connections, connection_events, renegotiation,
-                           tcp].
+                           tcp, connection_handshake].
 
 ssh_dbg_flags(connections) -> [c | ssh_dbg_flags(terminate)];
 ssh_dbg_flags(renegotiation) -> [c];
 ssh_dbg_flags(connection_events) -> [c];
+ssh_dbg_flags(connection_handshake) -> [c];
 ssh_dbg_flags(terminate) -> [c];
 ssh_dbg_flags(tcp) -> [c];
 ssh_dbg_flags(disconnect) -> [c].
@@ -2030,6 +2055,7 @@ ssh_dbg_flags(disconnect) -> [c].
 ssh_dbg_on(connections) -> dbg:tp(?MODULE,  init, 1, x),
                            ssh_dbg_on(terminate);
 ssh_dbg_on(connection_events) -> dbg:tp(?MODULE,   handle_event, 4, x);
+ssh_dbg_on(connection_handshake) -> dbg:tpl(?MODULE, handshake, 3, x);
 ssh_dbg_on(renegotiation) -> dbg:tpl(?MODULE,   init_renegotiate_timers, 3, x),
                              dbg:tpl(?MODULE,   pause_renegotiate_timers, 3, x),
                              dbg:tpl(?MODULE,   check_data_rekeying_dbg, 2, x),
@@ -2058,6 +2084,7 @@ ssh_dbg_off(renegotiation) -> dbg:ctpl(?MODULE,   init_renegotiate_timers, 3),
                               dbg:ctpl(?MODULE,   start_rekeying, 2),
                               dbg:ctpg(?MODULE,   renegotiate, 1);
 ssh_dbg_off(connection_events) -> dbg:ctpg(?MODULE, handle_event, 4);
+ssh_dbg_off(connection_handshake) -> dbg:ctpl(?MODULE, handshake, 3);
 ssh_dbg_off(connections) -> dbg:ctpg(?MODULE, init, 1),
                             ssh_dbg_off(terminate).
 
@@ -2223,3 +2250,18 @@ ssh_dbg_format(disconnect, {call,{?MODULE,send_disconnect,
 ssh_dbg_format(renegotiation, {return_from, {?MODULE,send_disconnect,7}, _Ret}) ->
     skip.
 
+
+ssh_dbg_format(connection_handshake, {call, {?MODULE,handshake,[Pid, Ref, Timeout]}}, Stack) ->
+    {["Connection handshake\n",
+      io_lib:format("Connection Child: ~p~nReg: ~p~nTimeout: ~p~n",
+                   [Pid, Ref, Timeout])
+     ],
+     [Pid|Stack]
+    };
+ssh_dbg_format(connection_handshake, {Tag, {?MODULE,handshake,3}, Ret}, [Pid|Stack]) ->
+    {[lists:flatten(io_lib:format("Connection handshake result ~p\n", [Tag])),
+      io_lib:format("Connection Child: ~p~nRet: ~p~n",
+                    [Pid, Ret])
+     ],
+     Stack
+    }.

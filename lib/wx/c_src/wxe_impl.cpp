@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 2008-2017. All Rights Reserved.
+ * Copyright Ericsson AB 2008-2022. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -32,6 +32,10 @@
 #define private public
 #include <wx/dcbuffer.h>
 #undef private
+
+#ifdef HAVE_GLIB
+ #include <glib.h>
+#endif
 
 #include "wxe_impl.h"
 #include "wxe_events.h"
@@ -135,6 +139,23 @@ void print_cmd(wxeCommand& event)
  *  Init WxeApp the application emulator
  * ************************************************************/
 
+#ifdef HAVE_GLIB
+static GLogWriterOutput wxe_log_glib(GLogLevelFlags log_level,
+                                     const GLogField *fields,
+                                     gsize n_fields,
+                                     gpointer user_data)
+{
+  for (gsize i = 0; i < n_fields; i++) {
+    if(strcmp(fields[i].key, "MESSAGE") == 0) {
+      wxString msg;
+      msg.Printf(wxT("GTK: %s"), (char *) fields[i].value);
+      send_msg("debug", &msg);
+    }
+  }
+  return G_LOG_WRITER_HANDLED;
+}
+#endif
+
 bool WxeApp::OnInit()
 {
 
@@ -165,6 +186,10 @@ bool WxeApp::OnInit()
   macMB->MacInstallMenuBar();
   macMB->Connect(wxID_ANY, wxEVT_COMMAND_MENU_SELECTED,
 		 (wxObjectEventFunction) (wxEventFunction) &WxeApp::dummy_close);
+#endif
+
+#ifdef HAVE_GLIB
+  g_log_set_writer_func(wxe_log_glib, NULL, NULL);
 #endif
 
   SetExitOnFrameDelete(false);
@@ -198,6 +223,16 @@ void WxeApp::MacNewFile() {
 void WxeApp::MacReopenApp() {
   wxString empty;
   send_msg("reopen_app", &empty);
+}
+
+bool WxeApp::OSXIsGUIApplication() {
+  // wx manually activates the application if it's not in the bundle [1]. In particular, it calls
+  // `[NSApp setActivationPolicy: NSApplicationActivationPolicyRegular]` which prevents the app
+  // from running in the background and we cannot control it with `LSUIElement` [2]. Their check
+  // if it's a bundle always returns false for wxErlang. Thus we use our own way of detecting it.
+  // [1] https://github.com/wxWidgets/wxWidgets/blob/v3.1.5/src/osx/cocoa/utils.mm#L76:L93
+  // [2] https://developer.apple.com/documentation/bundleresources/information_property_list/lsuielement
+  return !is_packaged_app();
 }
 #endif
 
@@ -435,19 +470,21 @@ void WxeApp::dispatch_cb(wxeFifo * batch, wxeMemEnv * memenv, ErlNifPid process)
             }
             enif_mutex_lock(wxe_batch_locker_m);
             last = batch->m_q.size();
-            if(wxe_idle_processed) {
-              // We have processed cmds inside dispatch()
-              // so the iterator may be wrong, restart from
-              // beginning of the queue
-              i = 0;
-            }
             break;
           }
           batch->DeleteCmd(event);
         } else {
         // enif_fprintf(stderr, "Ignore:"); event ? print_cmd(*event) : fprintf(stderr, "NULL\r\n");
       }
-      i++;
+      if(wxe_idle_processed) {
+        // We have processed cmds inside dispatch()
+        // so the iterator may be wrong, restart from
+        // beginning of the queue
+        i = 0;
+        wxe_idle_processed = 0;
+      } else {
+        i++;
+      }
     }
     // sleep until something happens
     // enif_fprintf(stderr, "\r\n%s:%d: %d: sleep sz %d (%d) it pos: %d\r\n", __FILE__, __LINE__, recurse_level,
@@ -546,8 +583,8 @@ void WxeApp::destroyMemEnv(wxeMetaCommand &Ecmd)
     send_msg("debug", &msg);
   }
 
-  // pre-pass delete all dialogs first since they might crash erlang otherwise
-  for(int i=1; i < memenv->next; i++) {
+  // pre-pass delete all dialogs and DC's first since they might crash erlang otherwise
+  for(int i=memenv->next-1; i > 0; i--) {
     wxObject * ptr = (wxObject *) memenv->ref2ptr[i];
     if(ptr) {
       ptrMap::iterator it = ptr2ref.find(ptr);
@@ -555,23 +592,22 @@ void WxeApp::destroyMemEnv(wxeMetaCommand &Ecmd)
 	wxeRefData *refd = it->second;
 	if(refd->alloc_in_erl && refd->type == 2) {
 	  wxDialog *win = (wxDialog *) ptr;
-	  if(win->IsModal()) {
-	    win->EndModal(-1);
-	  }
+	  if(win->IsModal()) { win->EndModal(-1); }
 	  parent = win->GetParent();
 	  if(parent) {
 	    ptrMap::iterator parentRef = ptr2ref.find(parent);
-	    if(parentRef == ptr2ref.end()) {
-	      // The parent is already dead delete the parent ref
-	      win->SetParent(NULL);
-	    }
+            // if the parent is already dead delete the parent ref
+	    if(parentRef == ptr2ref.end()) { win->SetParent(NULL); }
 	  }
-	  if(recurse_level > 0) {
-	    // Delay delete until we are out of dispatch*
-	  } else {
-	    delete win;
-	  }
-	}
+          // Delay delete until we are out of dispatch*
+	  if(recurse_level == 0) { delete win; }
+	} else if(refd->alloc_in_erl && refd->type == 8) {
+	  if(delete_object(ptr, refd)) {
+	    // Delete refs for leaks and non overridden allocs
+	    delete refd;
+	    ptr2ref.erase(it);
+          }
+        }
       }
     }
   }
@@ -633,7 +669,7 @@ void WxeApp::destroyMemEnv(wxeMetaCommand &Ecmd)
 	    delete refd;
 	    ptr2ref.erase(it);
 	  } // overridden allocs deletes meta-data in clearPtr
-	} else { // Not alloced in erl just delete references
+	} else { // Not allocated in erl just delete references
 	  if(refd->ref >= global_me->next) { // if it is not part of global ptrs
 	    delete refd;
 	    ptr2ref.erase(it);

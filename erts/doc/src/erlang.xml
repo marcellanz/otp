@@ -4,7 +4,7 @@
 <erlref>
   <header>
     <copyright>
-      <year>1996</year><year>2021</year>
+      <year>1996</year><year>2022</year>
       <holder>Ericsson AB. All Rights Reserved.</holder>
     </copyright>
     <legalnotice>
@@ -30,10 +30,11 @@
     <file>erlang.xml</file>
   </header>
   <module since="">erlang</module>
-  <modulesummary>The Erlang BIFs.</modulesummary>
+  <modulesummary>The Erlang BIFs and predefined types.</modulesummary>
   <description>
-    <p>By convention, most Built-In Functions (BIFs) are included
-      in this module. Some of the BIFs are viewed more
+    <p>By convention, most Built-In Functions (BIFs) and
+      all predefined types are included in this module.
+      Some of the BIFs and all of the predefined types are viewed more
       or less as part of the Erlang programming language and are
       <em>auto-imported</em>. Thus, it is not necessary to specify the
       module name. For example, the calls <c>atom_to_list(erlang)</c>
@@ -41,6 +42,12 @@
 
     <p>Auto-imported BIFs are listed without module prefix.
       BIFs listed with module prefix are not auto-imported.</p>
+
+    <p>Predefined types are listed in the
+      <seeerl marker="#Predefined datatypes">Predefined datatypes</seeerl>
+      section of this reference manual and in the
+      <seeguide marker="system/reference_manual:typespec">Types and Function Specifications</seeguide>
+      section of the Erlang Reference Manual.</p>
 
     <p>BIFs can fail for various reasons. All BIFs fail with
       reason <c>badarg</c> if they are called with arguments of an
@@ -52,22 +59,319 @@
   </description>
 
   <datatypes>
+    <datatype_title>Predefined datatypes</datatype_title>
     <datatype>
-      <name name="ext_binary"/>
+      <name name="any" n_vars="0"/>
+      <desc>
+        <p>All possible Erlang terms. Synonym for <c>term()</c>.</p>
+      </desc>
+    </datatype>
+    <datatype>
+      <name name="arity" n_vars="0"/>
+      <desc>
+        <p>The arity of a function or type.</p>
+      </desc>
+    </datatype>
+    <datatype>
+      <name name="atom" n_vars="0"/>
+      <desc>
+        <p>An Erlang <seeguide marker="system/reference_manual:data_types#atom">atom</seeguide>.</p>
+      </desc>
+    </datatype>
+    <datatype>
+      <name name="binary" n_vars="0"/>
+      <desc>
+        <p>An Erlang <seeguide marker="system/reference_manual:data_types#bit-strings-and-binaries">binary</seeguide>,
+          that is, a bitstring with a size divisible by 8.</p>
+      </desc>
+    </datatype>
+    <datatype>
+      <name name="bitstring" n_vars="0"/>
+      <desc>
+        <p>An Erlang <seeguide marker="system/reference_manual:data_types#bit-strings-and-binaries">bitstring</seeguide>.</p>
+      </desc>
+    </datatype>
+    <datatype>
+      <name name="boolean" n_vars="0"/>
+      <desc>
+        <p>A <seeguide marker="system/reference_manual:data_types#boolean">boolean</seeguide> value.</p>
+      </desc>
+    </datatype>
+    <datatype>
+      <name name="byte" n_vars="0"/>
+      <desc>
+        <p>A byte of data represented by an integer.</p>
+      </desc>
+    </datatype>
+    <datatype>
+      <name name="char" n_vars="0"/>
+      <desc>
+        <p>An ASCII character or a <seeerl marker="stdlib:unicode">unicode</seeerl>
+          codepoint presented by an integer.</p>
+      </desc>
+    </datatype>
+    <datatype>
+      <name name="float" n_vars="0"/>
+      <desc>
+        <p>An Erlang <seeguide marker="system/reference_manual:data_types#number">float</seeguide>.</p>
+      </desc>
+    </datatype>
+    <datatype>
+      <name name="function" n_vars="0"/>
+      <desc>
+        <p>An Erlang <seeguide marker="system/reference_manual:data_types#fun">fun</seeguide>.</p>
+      </desc>
+    </datatype>
+    <datatype>
+      <name name="identifier" n_vars="0"/>
+      <desc>
+        <p>An unique identifier for some entity, for example a <seeguide marker="system/reference_manual:processes">process</seeguide>, <seeguide marker="system/reference_manual:ports#ports">port</seeguide> or <seemfa marker="#monitor/2">monitor</seemfa>.</p>
+      </desc>
+    </datatype>
+    <datatype>
+      <name name="integer" n_vars="0"/>
+      <desc>
+        <p>An Erlang <seeguide marker="system/reference_manual:data_types#number">integer</seeguide>.</p>
+      </desc>
+    </datatype>
+    <datatype>
+      <name name="iodata" n_vars="0"/>
+      <desc>
+        <p>A binary or list containing bytes and/or iodata. This datatype is used to represent data
+          that is meant to be output using any I/O module.
+          For example: <seemfa marker="kernel:file#write/2">file:write/2</seemfa> or
+          <seemfa marker="kernel:gen_tcp#send/2">gen_tcp:send/2</seemfa>.
+        </p>
+        <p>To convert an iodata() term to binary() you can use <seemfa marker="#iolist_to_binary/1">
+          iolist_to_binary/2</seemfa>. To transcode a <seetype marker="#string">string()</seetype>
+          or <seetype marker="stdlib:unicode#chardata">unicode:chardata()</seetype> to iodata()
+          you can use <seemfa marker="stdlib:unicode#characters_to_binary/1">unicode:characters_to_binary/1</seemfa>.
+        </p>
+      </desc>
+    </datatype>
+    <datatype>
+      <name name="iolist" n_vars="0"/>
+      <desc>
+        <p>A list containing bytes and/or iodata. This datatype is used to represent data
+          that is meant to be output using any I/O module.
+          For example: <seemfa marker="kernel:file#write/2">file:write/2</seemfa>
+          or <seemfa marker="kernel:gen_tcp#send/2">gen_tcp:send/2</seemfa>.</p>
+        <p>In most use cases you want to use <seetype marker="#iodata">iodata()</seetype>
+          instead of this type.</p>
+      </desc>
+    </datatype>
+    <datatype>
+      <name name="list" n_vars="0"/>
+      <desc>
+        <p>An Erlang <seeguide marker="system/reference_manual:data_types#list">list</seeguide>
+          containing terms of any type.</p>
+      </desc>
+    </datatype>
+    <datatype>
+      <name name="list" n_vars="1"/>
+      <desc>
+        <p>An Erlang <seeguide marker="system/reference_manual:data_types#list">list</seeguide>
+          containing terms of the type <c><anno>ContentType</anno></c>.</p>
+      </desc>
+    </datatype>
+    <datatype>
+      <name name="map" n_vars="0"/>
+      <desc>
+        <p>An Erlang <seeguide marker="system/reference_manual:data_types#map">map</seeguide>
+          containing any number of key and value associations.</p>
+      </desc>
+    </datatype>
+    <datatype>
+      <name name="maybe_improper_list" n_vars="0"/>
+      <desc>
+        <p>An Erlang <seeguide marker="system/reference_manual:data_types#list">list</seeguide>
+          that is not guaranteed to end with a <seetype marker="#nil">[]</seetype>, and where the
+          list elements can be of any type.
+        </p>
+      </desc>
+    </datatype>
+    <datatype>
+      <name name="maybe_improper_list" n_vars="2"/>
+      <desc>
+        <p>An Erlang <seeguide marker="system/reference_manual:data_types#list">list</seeguide>,
+          that is not guaranteed to end with a <seetype marker="#nil">[]</seetype>,
+          and where the list elements are of the type <c><anno>ContentType</anno></c>.
+        </p>
+      </desc>
+    </datatype>
+    <datatype>
+      <name name="mfa" n_vars="0"/>
+      <desc>
+        <p>A three-tuple representing a <c>Module:Function/Arity</c> function signature.</p>
+      </desc>
+    </datatype>
+    <datatype>
+      <name name="module" n_vars="0"/>
+      <desc>
+        <p>An Erlang module represented by an atom.</p>
+      </desc>
+    </datatype>
+    <datatype>
+      <name name="neg_integer" n_vars="0"/>
+      <desc>
+        <p>A negative integer.</p>
+      </desc>
+    </datatype>
+    <datatype>
+      <name name="nil" n_vars="0"/>
+      <desc>
+        <p>The empty <seetype marker="#list">list()</seetype>.</p>
+      </desc>
+    </datatype>
+    <datatype>
+      <name name="no_return" n_vars="0"/>
+      <desc>
+        <p>The type used to show that a function will <em>never</em> return a value,
+          that is it will <em>always</em> throw an exception.</p>
+      </desc>
+    </datatype>
+    <datatype>
+      <name name="node" n_vars="0"/>
+      <desc>
+        <p>An Erlang <seeguide marker="system/reference_manual:distributed#nodes">node</seeguide>
+          represented by an atom.</p>
+      </desc>
+    </datatype>
+    <datatype>
+      <name name="non_neg_integer" n_vars="0"/>
+      <desc>
+        <p>A non-negative integer, that is any positive integer or 0.</p>
+      </desc>
+    </datatype>
+    <datatype>
+      <name name="none" n_vars="0"/>
+      <desc>
+        <p>This type is used to show that a function will <em>never</em> return a value;
+          that is it will <em>always</em> throw an exception. In a spec, use <c>no_return()</c>
+          for the sake of clarity.</p>
+      </desc>
+    </datatype>
+    <datatype>
+      <name name="nonempty_binary" n_vars="0"/>
+      <desc>
+        <p>A <seetype marker="#binary">binary()</seetype> that contains some data.</p>
+      </desc>
+    </datatype>
+    <datatype>
+      <name name="nonempty_bitstring" n_vars="0"/>
+      <desc>
+        <p>A <seetype marker="#bitstring">bitstring()</seetype> that contains some data.</p>
+      </desc>
+    </datatype>
+    <datatype>
+      <name name="nonempty_improper_list" n_vars="2"/>
+      <desc>
+        <p>A <seetype marker="#maybe_improper_list">maybe_improper_list/2</seetype> that contains some items.</p>
+      </desc>
+    </datatype>
+    <datatype>
+      <name name="nonempty_list" n_vars="0"/>
+      <desc>
+        <p>A <seetype marker="#list">list()</seetype> that contains some items.</p>
+      </desc>
+    </datatype>
+    <datatype>
+      <name name="nonempty_list" n_vars="1"/>
+      <desc>
+        <p>A <seetype marker="#list">list(ContentType)</seetype> that contains some items.</p>
+      </desc>
+    </datatype>
+    <datatype>
+      <name name="nonempty_maybe_improper_list" n_vars="0"/>
+      <desc>
+        <p>A <seetype marker="#maybe_improper_list">maybe_improper_list()</seetype> that contains some items.</p>
+      </desc>
+    </datatype>
+    <datatype>
+      <name name="nonempty_maybe_improper_list" n_vars="2"/>
+      <desc>
+        <p>A <seetype marker="#maybe_improper_list">maybe_improper_list(ContentType, TerminationType)</seetype>
+          that contains some items.</p>
+      </desc>
+    </datatype>
+    <datatype>
+      <name name="nonempty_string" n_vars="0"/>
+      <desc>
+        <p>A <seetype marker="#string">string()</seetype> that contains some characters.</p>
+      </desc>
+    </datatype>
+    <datatype>
+      <name name="number" n_vars="0"/>
+      <desc>
+        <p>An Erlang <seeguide marker="system/reference_manual:data_types#number">number</seeguide>.</p>
+      </desc>
+    </datatype>
+    <datatype>
+      <name name="pid" n_vars="0"/>
+      <desc>
+        <p>An Erlang <seeguide marker="system/reference_manual:data_types#pid">process identifier</seeguide>.</p>
+      </desc>
+    </datatype>
+    <datatype>
+      <name name="port" n_vars="0"/>
+      <desc>
+        <p>An Erlang <seeguide marker="system/reference_manual:data_types#port-identifier">port identifier</seeguide>.</p>
+      </desc>
+    </datatype>
+    <datatype>
+      <name name="pos_integer" n_vars="0"/>
+      <desc>
+        <p>An integer greater than zero.</p>
+      </desc>
+    </datatype>
+    <datatype>
+      <name name="reference" n_vars="0"/>
+      <desc>
+        <p>An Erlang <seeguide marker="system/reference_manual:data_types#reference">reference</seeguide>.</p>
+      </desc>
+    </datatype>
+    <datatype>
+      <name name="string" n_vars="0"/>
+      <desc>
+        <p>A character string represented by a list of ASCII characters or unicode codepoints.</p>
+      </desc>
+    </datatype>
+    <datatype>
+      <name name="term" n_vars="0"/>
+      <desc>
+        <p>All possible Erlang terms. Synonym for <c>any()</c>.</p>
+      </desc>
+    </datatype>
+    <datatype>
+      <name name="timeout" n_vars="0"/>
+      <desc>
+        <p>A timeout value that can be passed to a <seeguide marker="system/reference_manual:expressions#receive">receive expression</seeguide>.</p>
+      </desc>
+    </datatype>
+    <datatype>
+      <name name="tuple" n_vars="0"/>
+      <desc>
+        <p>An Erlang <seeguide marker="system/reference_manual:data_types#tuple">tuple</seeguide>.</p>
+      </desc>
+    </datatype>
+
+    <datatype_title>Other Datatypes</datatype_title>
+    <datatype>
+      <name name="ext_binary" prefix="true"/>
       <desc>
         <p>A binary data object, structured according to
           the Erlang external term format.</p>
       </desc>
     </datatype>
     <datatype>
-      <name name="ext_iovec"/>
+      <name name="ext_iovec" prefix="true"/>
       <desc>
         <p>A term of type <seetype marker="#iovec"><c>iovec()</c></seetype>,
 	structured according to the Erlang external term format.</p>
       </desc>
     </datatype>
     <datatype>
-      <name name="iovec"/>
+      <name name="iovec" prefix="true"/>
       <desc>
         <p>A list of binaries. This datatype is useful to use
           together with <seecref marker="erl_nif#enif_inspect_iovec">
@@ -75,27 +379,27 @@
       </desc>
     </datatype>
     <datatype>
-      <name name="message_queue_data"></name>
+      <name name="message_queue_data" prefix="true"/>
       <desc>
         <p>See <seeerl marker="#process_flag_message_queue_data">
           <c>process_flag(message_queue_data, MQD)</c></seeerl>.</p>
       </desc>
     </datatype>
     <datatype>
-      <name name="monitor_option"></name>
+      <name name="monitor_option" prefix="true"/>
       <desc>
         <p>See <seemfa marker="#monitor/3"><c>monitor/3</c></seemfa>.</p>
       </desc>
     </datatype>
     <datatype>
-      <name name="timestamp"></name>
+      <name name="timestamp" prefix="true"/>
       <desc>
         <p>See <seemfa marker="#timestamp/0">
           <c>erlang:timestamp/0</c></seemfa>.</p>
       </desc>
     </datatype>
     <datatype>
-      <name name="time_unit"></name>
+      <name name="time_unit" prefix="true"/>
       <desc>
         <marker id="type_time_unit"/>
         <p>Supported time unit representations:</p>
@@ -182,7 +486,7 @@
       </desc>
     </datatype>
     <datatype>
-      <name name="deprecated_time_unit"></name>
+      <name name="deprecated_time_unit" prefix="true"/>
       <desc><marker id="type_deprecated_time_unit"/>
 	<p>The <seeerl marker="#type_time_unit"><c>time_unit()</c></seeerl>
 	type also consist of the following <em>deprecated</em> symbolic
@@ -204,28 +508,28 @@
     </datatype>
 
     <datatype>
-      <name name="dist_handle"></name>
+      <name name="dist_handle" prefix="true"/>
       <desc>
-        <p>An opaque handle identifing a distribution channel.</p>
+        <p>An opaque handle identifying a distribution channel.</p>
       </desc>
     </datatype>
 
     <datatype>
-      <name name="nif_resource"></name>
+      <name name="nif_resource" prefix="true"/>
       <desc>
-        <p>An opaque handle identifing a
+        <p>An opaque handle identifying a
 	<seecref marker="erl_nif#resource_objects">NIF resource object
 	</seecref>.</p>
       </desc>
     </datatype>
     <datatype>
-      <name name="spawn_opt_option"></name>
+      <name name="spawn_opt_option" prefix="true"/>
       <desc>
         <p>Options for <seemfa marker="#spawn_opt/4"><c>spawn_opt()</c></seemfa>.</p>
       </desc>
     </datatype>
     <datatype>
-      <name name="priority_level"></name>
+      <name name="priority_level" prefix="true"/>
       <desc>
         <p>Process priority level. For more info see
         <seeerl marker="#process_flag_priority"><c>process_flag(priority,
@@ -233,7 +537,7 @@
       </desc>
     </datatype>
     <datatype>
-      <name name="max_heap_size"></name>
+      <name name="max_heap_size" prefix="true"/>
       <desc>
         <p>Process max heap size configuration. For more info see
         <seeerl marker="#process_flag_max_heap_size"><c>process_flag(max_heap_size,
@@ -241,23 +545,30 @@
       </desc>
     </datatype>
     <datatype>
-      <name name="message_queue_data"></name>
+      <name name="message_queue_data" prefix="true"/>
       <desc>
         <p>Process message queue data configuration. For more information, see
         <seeerl marker="#process_flag_message_queue_data"><c>process_flag(message_queue_data,
 	MQD)</c></seeerl> </p>
       </desc>
     </datatype>
-
     <datatype>
-      <name name="stacktrace"/>
-      <name name="stacktrace_extrainfo"/>
+      <name name="stacktrace" prefix="true"/>
+      <name name="stacktrace_extrainfo" prefix="true"/>
       <desc><p>An Erlang stacktrace as described by
       <seeguide marker="system/reference_manual:errors#stacktrace">Errors and Error Handling</seeguide>
       section in the Erlang Reference Manual.
       </p></desc>
     </datatype>
-
+    <datatype>
+      <name name="send_destination" prefix="true"/>
+      <desc>
+        <p>The destination for a send operation, can be a remote or local process identifier,
+          a (local) port, a reference denoting a process alias, a locally registered name, or a tuple
+          <c>{<anno>RegName</anno>, <anno>Node</anno>}</c>
+        for a registered name at another node.</p>
+      </desc>
+    </datatype>
   </datatypes>
 
   <funcs>
@@ -565,12 +876,8 @@ client(ServerPid, Request) ->
           valid UTF-8 sequences.</p>
         <note>
           <p>As from Erlang/OTP 20, <c>binary_to_atom(<anno>Binary</anno>, utf8)</c>
-            is capable of encoding any Unicode character. Earlier versions would
-            fail if the binary contained Unicode characters &gt; 255.
-            For more information about Unicode support in atoms, see the
-            <seeguide marker="erl_ext_dist#utf8_atoms">note on UTF-8
-            encoded atoms</seeguide>
-            in section "External Term Format" in the User's Guide.</p>
+            is capable of decoding any Unicode character. Earlier versions would
+            fail if the binary contained Unicode characters &gt; 255.</p>
         </note>
         <note>
           <p>The number of characters that are permitted in an atom
@@ -1483,7 +1790,9 @@ end</code>
         <p>Prints a text representation of <c><anno>Term</anno></c> on the
           standard output.</p>
         <warning>
-          <p>This BIF is intended for debugging only.</p>
+          <p>This BIF is intended for debugging only. The printed representation
+            may contain internal details that do not match the high-level
+            representation of the term in Erlang.</p>
         </warning>
       </desc>
     </func>
@@ -1518,7 +1827,7 @@ end</code>
 	<p>
 	  This function is used when implementing an alternative
 	  distribution carrier using processes as distribution
-	  controllers. <c><anno>DHandle</anno></c> is retrived
+	  controllers. <c><anno>DHandle</anno></c> is retrieved
 	  via the callback
 	  <seeguide marker="erts:alt_dist#hs_data_f_handshake_complete"><c>f_handshake_complete</c></seeguide>.
 	  More information can be found in the documentation of
@@ -1547,7 +1856,7 @@ end</code>
 	<p>
 	  This function is used when implementing an alternative
 	  distribution carrier using processes as distribution
-	  controllers. <c><anno>DHandle</anno></c> is retrived
+	  controllers. <c><anno>DHandle</anno></c> is retrieved
 	  via the callback
 	  <seeguide marker="erts:alt_dist#hs_data_f_handshake_complete"><c>f_handshake_complete</c></seeguide>.
 	  More information can be found in the documentation of
@@ -1583,7 +1892,7 @@ end</code>
 	<p>
 	  This function is used when implementing an alternative
 	  distribution carrier using processes as distribution
-	  controllers. <c><anno>DHandle</anno></c> is retrived
+	  controllers. <c><anno>DHandle</anno></c> is retrieved
 	  via the callback
 	  <seeguide marker="erts:alt_dist#hs_data_f_handshake_complete"><c>f_handshake_complete</c></seeguide>.
 	  More information can be found in the documentation of
@@ -1604,7 +1913,7 @@ end</code>
 	  Once this function has been called, <c><anno>InputHandler</anno></c>
 	  is the only process allowed to call
 	  <seemfa marker="erlang#dist_ctrl_put_data/2"><c>erlang:dist_ctrl_put_data(DHandle, Data)</c></seemfa>
-	  with the <c><anno>DHandle</anno></c> identifing this distribution
+	  with the <c><anno>DHandle</anno></c> identifying this distribution
 	  channel.
 	</p>
 	<note><p>
@@ -1616,7 +1925,7 @@ end</code>
 	<p>
 	  This function is used when implementing an alternative
 	  distribution carrier using processes as distribution
-	  controllers. <c><anno>DHandle</anno></c> is retrived
+	  controllers. <c><anno>DHandle</anno></c> is retrieved
 	  via the callback
 	  <seeguide marker="erts:alt_dist#hs_data_f_handshake_complete"><c>f_handshake_complete</c></seeguide>.
 	  More information can be found in the documentation of
@@ -1649,7 +1958,7 @@ end</code>
 	<p>
 	  This function is used when implementing an alternative
 	  distribution carrier using processes as distribution
-	  controllers. <c><anno>DHandle</anno></c> is retrived
+	  controllers. <c><anno>DHandle</anno></c> is retrieved
 	  via the callback
 	  <seeguide marker="erts:alt_dist#hs_data_f_handshake_complete"><c>f_handshake_complete</c></seeguide>.
 	  More information can be found in the documentation of
@@ -1698,7 +2007,7 @@ end</code>
 	<p>
 	  This function is used when implementing an alternative
 	  distribution carrier using processes as distribution
-	  controllers. <c><anno>DHandle</anno></c> is retrived
+	  controllers. <c><anno>DHandle</anno></c> is retrieved
 	  via the callback
 	  <seeguide marker="erts:alt_dist#hs_data_f_handshake_complete"><c>f_handshake_complete</c></seeguide>.
 	  More information can be found in the documentation of
@@ -2064,7 +2373,14 @@ true</pre>
 > <input>float_to_binary(7.12, [{decimals, 4}, compact]).</input>
 &lt;&lt;"7.12">>
 > <input>float_to_binary(7.12, [{scientific, 3}]).</input>
-&lt;&lt;"7.120e+00">></pre>
+&lt;&lt;"7.120e+00">>
+> <input>float_to_binary(7.12, [short]).</input>
+&lt;&lt;"7.12">>
+> <input>float_to_binary(0.1+0.2, [short]).</input>
+&lt;&lt;"0.30000000000000004">>
+> <input>float_to_binary(0.1+0.2)</input>
+&lt;&lt;"3.00000000000000044409e-01">>
+</pre>
       </desc>
     </func>
 
@@ -2099,6 +2415,16 @@ true</pre>
             formatted using scientific notation with <c>Decimals</c>
             digits of precision.</p>
           </item>
+          <item><p>If option <c>short</c> is specified, the float is formatted
+          with the smallest number of digits that still guarantees that
+          <c>F =:= list_to_float(float_to_list(F, [short]))</c>. When the float
+          is inside the range (-2⁵³, 2⁵³), the notation
+          that yields the smallest number of characters is used (scientific
+          notation or normal decimal notation). Floats outside the range
+          (-2⁵³, 2⁵³) are always formatted using
+          scientific notation to avoid confusing results when doing arithmetic
+          operations.</p>
+          </item>
           <item><p>If <c>Options</c> is <c>[]</c>, the function behaves as
             <seemfa marker="#float_to_list/1">
             <c>float_to_list/1</c></seemfa>.</p>
@@ -2112,6 +2438,10 @@ true</pre>
 "7.12"
 > <input>float_to_list(7.12, [{scientific, 3}]).</input>
 "7.120e+00"
+> <input>float_to_list(7.12, [short]).</input>
+"7.12"
+> <input>float_to_list(0.1+0.2, [short]).</input>
+"0.30000000000000004"
 > <input>float_to_list(0.1+0.2)</input>
 "3.00000000000000044409e-01"
 </pre>
@@ -2340,7 +2670,7 @@ account.</p>
 {#Fun&lt;test.2.107738983>,#Fun&lt;test.3.107738983>}
 </pre>
 <p>Explanation: The string representations differ because the funs
-come from different fun experssions.</p>
+come from different fun expressions.</p>
 <pre>
 > <input>{fun() -> 1 end, fun() -> 1 end}.</input> > <input></input>
 {#Fun&lt;erl_eval.45.97283095>,#Fun&lt;erl_eval.45.97283095>}
@@ -2496,7 +2826,9 @@ uncompiled code with the same arity are mapped to the same list by
       <fsummary>Get the magic cookie of the local node.</fsummary>
       <desc>
         <p>Returns the magic cookie of the local node if the node is
-          alive, otherwise the atom <c>nocookie</c>.</p>
+          alive, otherwise the atom <c>nocookie</c>. This value is set by
+          <seemfa marker="#set_cookie/1"><c>set_cookie/1</c></seemfa>.
+        </p>
       </desc>
     </func>
 
@@ -2506,7 +2838,8 @@ uncompiled code with the same arity are mapped to the same list by
       <desc>
         <p>Returns the magic cookie for node <c><anno>Node</anno></c>
           if the local node is alive,
-          otherwise the atom <c>nocookie</c>.</p>
+          otherwise the atom <c>nocookie</c>. This value is set by
+          <seemfa marker="#set_cookie/2"><c>set_cookie/2</c></seemfa>.</p>
       </desc>
     </func>
 
@@ -2575,7 +2908,7 @@ uncompiled code with the same arity are mapped to the same list by
           applications with a supervision tree, because OTP
           assumes the group leader of their processes is
           their application master.</p>
-        <p>Setting the group leader follows the signal ordering guarentees
+        <p>Setting the group leader follows the signal ordering guarantees
           described in the
           <seeguide marker="system/reference_manual:processes#signals">
           Processes Chapter</seeguide> in the <i>Erlang Reference Manual</i>.</p>
@@ -3064,7 +3397,7 @@ is_process_alive(P2Pid),
        <p>See the documentation about
         <seeguide marker="system/reference_manual:processes#signals">signals</seeguide>
        and <seemfa marker="#exit/2">erlang:exit/2</seemfa> for more
-       information about signals and exit singnals.</p>
+       information about signals and exit signals.</p>
       </desc>
     </func>
 
@@ -3233,10 +3566,7 @@ is_process_alive(P2Pid),
         <p>As from Erlang/OTP 20, <c><anno>String</anno></c> may contain
           any Unicode character. Earlier versions allowed only ISO-latin-1
           characters as the implementation did not allow Unicode characters
-          above 255. For more information on Unicode support in atoms, see
-          <seeguide marker="erl_ext_dist#utf8_atoms">note on UTF-8
-          encoded atoms</seeguide>
-        in section "External Term Format" in the User's Guide.</p>
+          above 255.</p>
         <note>
           <p>The number of characters that are permitted in an atom
           name is limited. The default limits can be found in the
@@ -3493,6 +3823,11 @@ is_process_alive(P2Pid),
           previous current code for <c><anno>Module</anno></c> will remain
           until the <c>on_load</c> call has finished.
           </item>
+          <tag>not_allowed</tag>
+          <item>The code in <c><anno>Binary</anno></c> has been
+          compiled with features that are currently not enabled in the
+          runtime system.
+          </item>
         </taglist>
         <warning>
           <p>This BIF is intended for the code server (see
@@ -3548,6 +3883,16 @@ is_process_alive(P2Pid),
             allowed.
           </item>
         </taglist>
+        <p>
+          If the <seeguide marker="system/reference_manual:modules#nifs_attribute">
+          <c>-nifs()</c></seeguide> attribute is used (which is recommended),
+          all NIFs in the dynamic library much be declared as such for
+          <c>load_nif/2</c> to succeed. On the other hand, all functions declared
+          with the <c>-nifs()</c> attribute do not have to be implemented by the
+          dynamic library. This allows a target independent Erlang file to
+          contain fallback implementations for functions that may lack NIF
+          support depending on target OS/hardware platform.
+        </p>
       </desc>
     </func>
 
@@ -3653,7 +3998,7 @@ is_process_alive(P2Pid),
 
     <func>
       <name name="make_tuple" arity="3" since=""/>
-      <fsummary>Create a new tuple with specifed arity and contents.</fsummary>
+      <fsummary>Create a new tuple with specified arity and contents.</fsummary>
       <desc>
         <p>Creates a tuple of size <c><anno>Arity</anno></c>, where each element
           has value <c><anno>DefaultValue</anno></c>, and then fills in
@@ -4627,7 +4972,7 @@ receive_replies(ReqId, N, Acc) ->
           new Erlang port. A port can be seen as an external Erlang
           process.</p>
         <p>The name of the executable as well as the arguments
-          specifed in <c>cd</c>, <c>env</c>, <c>args</c>, and <c>arg0</c> are
+          specified in <c>cd</c>, <c>env</c>, <c>args</c>, and <c>arg0</c> are
           subject to Unicode filename translation if the system is running
           in Unicode filename mode. To avoid
           translation or to force, for example UTF-8, supply the executable
@@ -5799,6 +6144,11 @@ receive_replies(ReqId, N, Acc) ->
           If <c><anno>MaxHeapSize</anno></c> is an integer, the system default
           values for <c>kill</c> and <c>error_logger</c> are used.
         </p>
+        <p>
+          For details on how the heap grows, see
+          <seeguide marker="erts:GarbageCollection#sizing-the-heap">Sizing
+          the heap</seeguide> in the ERTS internal documentation.
+        </p>
         <taglist>
           <tag><c>size</c></tag>
           <item>
@@ -6137,7 +6487,7 @@ receive_replies(ReqId, N, Acc) ->
           <c><anno>Item</anno></c>s were included
           in <c><anno>ItemList</anno></c>. Valid <c><anno>Item</anno></c>s can
           be included multiple times in <c><anno>ItemList</anno></c>.</p>
-        <p>Getting process informations follows the signal ordering guarantees
+        <p>Getting process information follows the signal ordering guarantees
           described in the
           <seeguide marker="system/reference_manual:processes#signals">
           Processes Chapter</seeguide> in the <i>Erlang Reference Manual</i>.</p>
@@ -6335,6 +6685,14 @@ receive_replies(ReqId, N, Acc) ->
               <seeerl marker="#process_flag_message_queue_data">
               <c>process_flag(message_queue_data, MQD)</c></seeerl>.</p>
           </item>
+            <tag><c>{parent, <anno>Pid</anno>}</c></tag>
+            <item>
+                <p><c><anno>Pid</anno></c> is the identifier
+                of the parent process, the one that spawned current
+                process. When the process does not have a parent
+                <c>undefined</c> is returned. Only the initial process
+                (<c>init</c>) on a node lacks a parent, though.</p>
+            </item>
           <tag><c>{priority, <anno>Level</anno>}</c></tag>
           <item>
             <p><c><anno>Level</anno></c> is the current priority level for
@@ -6785,7 +7143,6 @@ true</pre>
     <func>
       <name name="send" arity="2" since=""/>
       <fsummary>Send a message.</fsummary>
-      <type name="dst"/>
       <desc>
         <p>Sends a message and returns <c><anno>Msg</anno></c>. This
         is the same as using the <seeguide marker="system/reference_manual:expressions#send">
@@ -6793,8 +7150,7 @@ true</pre>
 	<c><anno>Dest</anno> ! <anno>Msg</anno></c>.</p>
         <p><c><anno>Dest</anno></c> can be a remote or local process identifier,
           an alias, a (local) port, a locally registered name, or a tuple
-          <c>{<anno>RegName</anno>, <anno>Node</anno>}</c>
-        for a registered name at another node.</p>
+          <c>{RegName, Node}</c> for a registered name at another node.</p>
 	<p>The function fails with a <c>badarg</c> run-time error if
 	<c><anno>Dest</anno></c> is an atom name, but this name is not
 	registered. This is the only case when <c>send</c> fails for an
@@ -6805,7 +7161,6 @@ true</pre>
     <func>
       <name name="send" arity="3" since=""/>
       <fsummary>Send a message conditionally.</fsummary>
-      <type name="dst"/>
       <desc>
         <p>Either sends a message and returns <c>ok</c>, or does not send
           the message but returns something else (see below).
@@ -6861,7 +7216,6 @@ true</pre>
     <func>
       <name name="send_nosuspend" arity="2" since=""/>
       <fsummary>Try to send a message without ever blocking.</fsummary>
-      <type name="dst"/>
       <desc>
         <p>The same as
           <seemfa marker="#send/3"><c>erlang:send(<anno>Dest</anno>,
@@ -6911,7 +7265,6 @@ true</pre>
     <func>
       <name name="send_nosuspend" arity="3" since=""/>
       <fsummary>Try to send a message without ever blocking.</fsummary>
-      <type name="dst"/>
       <desc>
         <p>The same as
           <seemfa marker="#send/3"><c>erlang:send(<anno>Dest</anno>,
@@ -6953,6 +7306,8 @@ true</pre>
           <seeguide marker="system/reference_manual:distributed">
           Distributed Erlang</seeguide>
           in the Erlang Reference Manual in System Documentation).</p>
+        <p>You can get this value using
+          <seemfa marker="#get_cookie/0"><c>get_cookie/0</c></seemfa>.</p>
         <p>Failure: <c>function_clause</c> if the local node is not
           alive.</p>
       </desc>
@@ -6970,6 +7325,8 @@ true</pre>
           <seeguide marker="system/reference_manual:distributed">
           Distributed Erlang</seeguide>
           in the Erlang Reference Manual in System Documentation).</p>
+        <p>You can get this value using
+          <seemfa marker="#get_cookie/1"><c>get_cookie/1</c></seemfa>.</p>
         <p>Failure: <c>function_clause</c> if the local node is not
           alive.</p>
       </desc>
@@ -6978,7 +7335,7 @@ true</pre>
     <func>
       <name name="setelement" arity="3" since=""/>
       <fsummary>Set the Nth element of a tuple.</fsummary>
-      <type_desc variable="Index">1..tuple_size(<anno>Tuple1</anno></type_desc>
+      <type_desc variable="Index">1..tuple_size(<anno>Tuple1</anno>)</type_desc>
       <desc>
         <p>Returns a tuple that is a copy of argument
           <c><anno>Tuple1</anno></c>
@@ -8296,7 +8653,7 @@ lists:map(
           and <seeerl marker="#system_info_dirty_cpu_schedulers">dirty CPU</seeerl>
           schedulers in the system have been busy. This value is normally a
           better indicator of how much load an Erlang node is under instead of
-          looking at the CPU utilization privided by tools such as <c>top</c> or
+          looking at the CPU utilization provided by tools such as <c>top</c> or
           <c>sysstat</c>. This is because <c>scheduler_wall_time</c> also includes
           time where the scheduler is waiting for some other reasource (such as an internal
           mutex) to be available but does not use the CPU. In order to better
@@ -8601,7 +8958,7 @@ ok
 		</item>
 	      </taglist>
 	      <p>
-		Appart from the reply message, the <c>{asynchronous,
+		Apart from the reply message, the <c>{asynchronous,
 		ReplyTag}</c> option behaves exactly the same as the
 		<c>asynchronous</c> option without reply tag.
 	      </p>
@@ -8861,6 +9218,11 @@ ok
           <seeerl marker="#process_flag_max_heap_size">
           <c>process_flag/2</c></seeerl>.</p>
         <p>Returns the old value of the flag.</p>
+        <p>
+          For details on how the heap grows, see
+          <seeguide marker="erts:GarbageCollection#sizing-the-heap">Sizing
+          the heap</seeguide> in the ERTS internal documentation.
+        </p>
       </desc>
     </func>
 
@@ -8922,6 +9284,50 @@ ok
 
     <func>
       <name name="system_flag" arity="2" clause_i="11"
+            anchor="system_flag_outstanding_system_requests_limit"
+            since="OTP 24.2"/>
+      <fsummary>Set limit on outstanding requests for system processes.</fsummary>
+      <desc>
+        <p>
+          Sets a limit on the amount of outstanding requests made by
+          a system process orchestrating system wide changes. Currently
+          there are two such processes:
+        </p>
+        <taglist>
+          <tag>The Code Purger</tag>
+          <item><p>
+            The code purger orchestrates checking of references to old
+            code before old code is removed from the system.
+          </p></item>
+          <tag>The Literal Area Collector</tag>
+          <item><p>
+            The literal area collector orchestrates copying of references
+            from old literal areas before removal of such areas from the
+            system.
+          </p></item>
+        </taglist>
+        <p>
+          Each of these processes are allowed to have as many outstanding
+          requests as this limit is set to. By default this limit is set
+          to twice the amount of
+          <seeerl marker="#system_info_schedulers">schedulers</seeerl>
+          on the system. This will ensure that schedulers will have enough
+          work scheduled to perform these operations as quickly as possible
+          at the same time as other work will be interleaved with this work.
+          Currently used limit can be checked by calling
+          <seeerl marker="#system_info_outstanding_system_requests_limit">
+            <c>erlang:system_info(outstanding_system_requests_limit)</c></seeerl>.
+        </p>
+        <p>
+          This limit can also be set by passing the command line argument
+          <seecom marker="erts:erl#+zosrl"><c>+zosrl &lt;Limit&gt;</c></seecom>
+          to <c>erl</c>.
+        </p>
+      </desc>
+    </func>
+
+    <func>
+      <name name="system_flag" arity="2" clause_i="12"
 	    anchor="system_flag_scheduler_bind_type" since=""/>
       <fsummary>Set system flag scheduler_bind_type.</fsummary>
       <type name="scheduler_bind_type"/>
@@ -9048,20 +9454,46 @@ ok
     </func>
 
     <func>
-      <name name="system_flag" arity="2" clause_i="12"
+      <name name="system_flag" arity="2" clause_i="13"
 	    anchor="system_flag_scheduler_wall_time" since="OTP R15B01"/>
       <fsummary>Set system flag scheduler_wall_time.</fsummary>
       <desc>
         <p>
-          Turns on or off scheduler wall time measurements.</p>
-        <p>For more information, see
-          <seeerl marker="#statistics_scheduler_wall_time">
-          <c>statistics(scheduler_wall_time)</c></seeerl>.</p>
+          Try enable or disable scheduler wall time measurements by passing
+	  <c><anno>Boolean</anno></c> as either <c>true</c> or <c>false</c>.
+	</p>
+	<p>
+	  For more information about how to use scheduler wall time
+	  measurements, see <seeerl marker="#statistics_scheduler_wall_time">
+          <c>statistics(scheduler_wall_time)</c></seeerl>.
+	</p>
+	<p>
+	  Scheduler wall time measurements has a node global state. It is either
+	  enabled for all processes on the node or disabled for all
+	  processes. Each process has a logical counter initialized as zero. A
+	  call with <c><anno>Boolean</anno></c> as <c>true</c> will increase
+	  that counter one step for the calling process. A call with
+	  <c>false</c> will decrease it one step unless it already is
+	  zero. The node global state for <c>scheduler_wall_time</c> will be
+	  enabled as long as there is at least one process alive with a counter
+	  value larger than zero. When a process terminates, its counter will
+	  also disappear. To ensure <c>scheduler_wall_time</c> is kept enabled,
+	  the process that enabled it must therefore be kept alive.
+	</p>
+	<p>
+	  Returns the old value of the node global state, <c>true</c> if
+	  scheduler wall time measurements were enabled, <c>false</c>
+	  if it were disabled.
+	</p>
+	<p>
+	  Scheduler wall time measurements do consume some cpu overhead and
+	  should not be left turned on unless used.
+	</p>
       </desc>
     </func>
 
     <func>
-      <name name="system_flag" arity="2" clause_i="13"
+      <name name="system_flag" arity="2" clause_i="14"
 	    anchor="system_flag_schedulers_online" since=""/>
       <fsummary>Set system flag schedulers_online.</fsummary>
       <desc>
@@ -9090,7 +9522,7 @@ ok
     </func>
 
     <func>
-      <name name="system_flag" arity="2" clause_i="14" since="OTP 21.3"/>
+      <name name="system_flag" arity="2" clause_i="15" since="OTP 21.3"/>
       <fsummary>Set system logger process.</fsummary>
       <desc>
         <p>Sets the process that will receive the logging
@@ -9122,7 +9554,7 @@ Metadata = #{ pid => pid(),
     </func>
 
     <func>
-      <name name="system_flag" arity="2" clause_i="15" since=""/>
+      <name name="system_flag" arity="2" clause_i="16" since=""/>
       <fsummary>Set system flag trace_control_word.</fsummary>
       <desc>
         <p>Sets the value of the node trace control word to
@@ -9136,7 +9568,7 @@ Metadata = #{ pid => pid(),
     </func>
 
     <func>
-      <name name="system_flag" arity="2" clause_i="16"
+      <name name="system_flag" arity="2" clause_i="17"
 	    anchor="system_flag_time_offset" since="OTP 18.0"/>
       <fsummary>Finalize the time offset.</fsummary>
       <desc>
@@ -9285,6 +9717,7 @@ Metadata = #{ pid => pid(),
               <seeerl marker="#system_info_modified_timing_level"><c>modified_timing_level</c></seeerl>,
               <seeerl marker="#system_info_nif_version"><c>nif_version</c></seeerl>,
               <seeerl marker="#system_info_otp_release"><c>otp_release</c></seeerl>,
+              <seeerl marker="#system_info_outstanding_system_requests_limit"><c>outstanding_system_requests_limit</c></seeerl>,
               <seeerl marker="#system_info_port_parallelism"><c>port_parallelism</c></seeerl>,
               <seeerl marker="#system_info_system_architecture"><c>system_architecture</c></seeerl>,
               <seeerl marker="#system_info_system_logger"><c>system_logger</c></seeerl>,
@@ -9914,7 +10347,7 @@ Metadata = #{ pid => pid(),
               introduced in the future:</p>
             <taglist>
               <tag><c>{function, Function}</c></tag>
-              <item><p><c>Function</c> is the name of the funcion used.</p>
+              <item><p><c>Function</c> is the name of the function used.</p>
               </item>
               <tag><c>{clock_id, ClockId}</c></tag>
               <item><p>Exists only if <c>Function</c>
@@ -10459,36 +10892,37 @@ Metadata = #{ pid => pid(),
       <!-- <name name="system_info" arity="1" clause_i="46"/>  multi_scheduling -->
       <!-- <name name="system_info" arity="1" clause_i="47"/>  multi_scheduling_blockers -->
       <name name="system_info" arity="1" clause_i="48" since="OTP 17.4"/>  <!-- nif_version -->
-      <!-- n<name name="system_info" arity="1" clause_i="49"/> normal_multi_scheduling_blockers -->
+      <!-- <name name="system_info" arity="1" clause_i="49"/> normal_multi_scheduling_blockers -->
       <name name="system_info" arity="1" clause_i="50" since=""/>  <!-- otp_release -->
       <!-- <name name="system_info" arity="1" clause_i="51"/>  os_monotonic_time_source -->
       <!-- <name name="system_info" arity="1" clause_i="52"/>  os_system_time_source -->
-      <name name="system_info" arity="1" clause_i="53" since="OTP R16B"/>  <!-- port_parallelism -->
-      <!-- <name name="system_info" arity="1" clause_i="54"/>  port_count -->
-      <!-- <name name="system_info" arity="1" clause_i="55"/>  port_limit -->
-      <!-- <name name="system_info" arity="1" clause_i="56"/>  process_count -->
-      <!-- <name name="system_info" arity="1" clause_i="57"/>  process_limit -->
-      <!-- <name name="system_info" arity="1" clause_i="58"/>  procs -->
-      <!-- <name name="system_info" arity="1" clause_i="59"/>  scheduler_bind_type -->
-      <!-- <name name="system_info" arity="1" clause_i="60"/>  scheduler_bindings -->
-      <!-- <name name="system_info" arity="1" clause_i="61"/>  scheduler_id -->
-      <!-- <name name="system_info" arity="1" clause_i="62"/>  schedulers -->
-      <!-- <name name="system_info" arity="1" clause_i="63"/>  smp_support -->
-      <!-- <name name="system_info" arity="1" clause_i="64"/>  start_time -->
-      <name name="system_info" arity="1" clause_i="65" since=""/>  <!-- system_architecture -->
-      <name name="system_info" arity="1" clause_i="66" since="OTP 21.3"/>  <!-- system_logger -->
-      <name name="system_info" arity="1" clause_i="67" since=""/>  <!-- system_version -->
-      <!-- <name name="system_info" arity="1" clause_i="68"/>  threads -->
-      <!-- <name name="system_info" arity="1" clause_i="69"/>  thread_pool_size -->
-      <!-- <name name="system_info" arity="1" clause_i="70"/>  time_correction -->
-      <!-- <name name="system_info" arity="1" clause_i="71"/>  time_offset -->
-      <!-- <name name="system_info" arity="1" clause_i="72"/>  time_warp_mode -->
-      <!-- <name name="system_info" arity="1" clause_i="73"/>  tolerant_timeofday -->
-      <name name="system_info" arity="1" clause_i="74" since=""/>  <!-- trace_control_word -->
-      <!-- <name name="system_info" arity="1" clause_i="75"/>  update_cpu_info -->
-      <name name="system_info" arity="1" clause_i="76" since=""/>  <!-- version -->
-      <name name="system_info" arity="1" clause_i="77" since=""/>  <!-- wordsize -->
-      <!-- <name name="system_info" arity="1" clause_i="78"/>  overview -->
+      <name name="system_info" arity="1" clause_i="53" since="OTP 24.2"/>  <!-- outstanding_system_requests_limit -->
+      <name name="system_info" arity="1" clause_i="54" since="OTP R16B"/>  <!-- port_parallelism -->
+      <!-- <name name="system_info" arity="1" clause_i="55"/>  port_count -->
+      <!-- <name name="system_info" arity="1" clause_i="56"/>  port_limit -->
+      <!-- <name name="system_info" arity="1" clause_i="57"/>  process_count -->
+      <!-- <name name="system_info" arity="1" clause_i="58"/>  process_limit -->
+      <!-- <name name="system_info" arity="1" clause_i="59"/>  procs -->
+      <!-- <name name="system_info" arity="1" clause_i="60"/>  scheduler_bind_type -->
+      <!-- <name name="system_info" arity="1" clause_i="61"/>  scheduler_bindings -->
+      <!-- <name name="system_info" arity="1" clause_i="62"/>  scheduler_id -->
+      <!-- <name name="system_info" arity="1" clause_i="63"/>  schedulers -->
+      <!-- <name name="system_info" arity="1" clause_i="64"/>  smp_support -->
+      <!-- <name name="system_info" arity="1" clause_i="65"/>  start_time -->
+      <name name="system_info" arity="1" clause_i="66" since=""/>  <!-- system_architecture -->
+      <name name="system_info" arity="1" clause_i="67" since="OTP 21.3"/>  <!-- system_logger -->
+      <name name="system_info" arity="1" clause_i="68" since=""/>  <!-- system_version -->
+      <!-- <name name="system_info" arity="1" clause_i="69"/>  threads -->
+      <!-- <name name="system_info" arity="1" clause_i="70"/>  thread_pool_size -->
+      <!-- <name name="system_info" arity="1" clause_i="71"/>  time_correction -->
+      <!-- <name name="system_info" arity="1" clause_i="72"/>  time_offset -->
+      <!-- <name name="system_info" arity="1" clause_i="73"/>  time_warp_mode -->
+      <!-- <name name="system_info" arity="1" clause_i="74"/>  tolerant_timeofday -->
+      <name name="system_info" arity="1" clause_i="75" since=""/>  <!-- trace_control_word -->
+      <!-- <name name="system_info" arity="1" clause_i="76"/>  update_cpu_info -->
+      <name name="system_info" arity="1" clause_i="77" since=""/>  <!-- version -->
+      <name name="system_info" arity="1" clause_i="78" since=""/>  <!-- wordsize -->
+      <!-- <name name="system_info" arity="1" clause_i="79"/>  overview -->
       <!--    When adding any entry, make sure to update the overview clause_i -->
       <fsummary>Information about the system.</fsummary>
       <desc>
@@ -10649,6 +11083,17 @@ Metadata = #{ pid => pid(),
               description of versions in
               <seeguide marker="system/system_principles:versions">
               System principles</seeguide> in System Documentation.</p>
+          </item>
+          <tag><marker id="system_info_outstanding_system_requests_limit"/>
+            <c>outstanding_system_requests_limit</c></tag>
+          <item>
+            <p>
+              Returns the limit on the amount of outstanding requests
+              made by a system process orchestrating system wide changes.
+              See <seeerl marker="#system_flag_outstanding_system_requests_limit">
+              <c>erlang:system_flag(outstanding_system_requests_limit, Limit)</c></seeerl>
+              for more information.
+            </p>
           </item>
           <tag><marker id="system_info_port_parallelism"/>
             <c>port_parallelism</c></tag>
@@ -11093,7 +11538,7 @@ hello
 	    </item>
 	    <tag><c>1</c></tag>
 	    <item>
-              <p>This is as of Erlang/OTP 17.0 the default. It forces any floats
+              <p>This is as of Erlang/OTP 17.0 the <em>default</em>. It forces any floats
 	      in the term to be encoded in a more space-efficient and exact way
 	      (namely in the 64-bit IEEE format, rather than converted to a
 	      textual representation). As from Erlang/OTP R11B-4,
@@ -11105,9 +11550,16 @@ hello
 	    <tag><c>2</c></tag>
 	    <item>
               <p>Drops usage of the latin1 atom encoding and unconditionally
-	      use utf8 encoding for all atoms. This will be changed to the
-	      default in a future major release of Erlang/OTP. Erlang/OTP
+	      use utf8 encoding for all atoms. Erlang/OTP
 	      systems as of R16B can decode this representation.</p>
+              <note>
+                <p>In Erlang/OTP 26, the default <c>minor_version</c> is planned
+                to change from 1 to 2. See
+                <seeguide marker="system/general_info:upcoming_incompatibilities#atoms_be_utf8">
+                  Upcoming Potential Incompatibilities
+                </seeguide>.
+                </p>
+              </note>
 	    </item>
 	  </taglist>
           <p>Option <c>deterministic</c> (introduced in OTP 24.1) can
@@ -12073,7 +12525,7 @@ improper_end</pre>
           <item>
             <p>Returns a list of atoms indicating what kind of traces is
               enabled for the process. The list is empty if no
-              traces are enabled, and one or more of the followings
+              traces are enabled, and one or more of the following
               atoms if traces are enabled: <c>send</c>,
               <c>'receive'</c>, <c>set_on_spawn</c>, <c>call</c>,
               <c>return_to</c>, <c>procs</c>, <c>ports</c>,

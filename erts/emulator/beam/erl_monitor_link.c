@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  * 
- * Copyright Ericsson AB 2018-2020. All Rights Reserved.
+ * Copyright Ericsson AB 2018-2021. All Rights Reserved.
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -197,8 +197,7 @@ ml_cmp_keys(Eterm key1, Eterm key2)
                 if (n1->sysname != n2->sysname)
                     return n1->sysname < n2->sysname ? -1 : 1;
                 ASSERT(n1->creation != n2->creation);
-                if (n1->creation != 0 && n2->creation != 0)
-                    return n1->creation < n2->creation ? -1 : 1;
+                return n1->creation < n2->creation ? -1 : 1;
             }
 
             ndw1 = external_thing_data_words(et1);
@@ -914,7 +913,7 @@ erts_monitor_create(Uint16 type, Eterm ref, Eterm orgn, Eterm trgt, Eterm name, 
         else {
             /* Pending spawn_request() */
             pending_flag = ERTS_ML_FLG_SPAWN_PENDING;
-            /* Prepare for storage of exteral pid */
+            /* Prepare for storage of external pid */
             tsz = EXTERNAL_PID_HEAP_SIZE;
             /* name contains tag */
             

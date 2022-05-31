@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 2017. All Rights Reserved.
+ * Copyright Ericsson AB 2017-2021. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -59,9 +59,16 @@
 #include "erl_printf.h"
 
 #ifdef __WIN32__
-/* FIXE ME config_win32.h? */
+/* FIXME config_win32.h? */
 #define HAVE_STRERROR 1
 #define snprintf _snprintf
+#endif
+
+#ifdef __IOS__
+#ifdef system
+#undef system
+#endif 
+#define system(X) 0
 #endif
 
 #ifdef DEBUG

@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 1999-2020. All Rights Reserved.
+%% Copyright Ericsson AB 1999-2021. All Rights Reserved.
 %% 
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -256,6 +256,10 @@ size([H|T]=Term, Seen0, Sum0) ->
 	    {Sum,Seen} = size(H, Seen1, Sum0+2),
 	    size(T, Seen, Sum)
     end;
+size({}, Seen0, Sum0) ->
+    %% Tuples of size 0 all points to a constant literal so we count
+    %% them as size zero
+    {Sum0,Seen0};
 size(Tuple, Seen0, Sum0) when is_tuple(Tuple) ->
     case remember_term(Tuple, Seen0) of
 	seen -> {Sum0,Seen0};

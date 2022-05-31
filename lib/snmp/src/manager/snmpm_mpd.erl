@@ -1,7 +1,7 @@
 %% 
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2004-2019. All Rights Reserved.
+%% Copyright Ericsson AB 2004-2021. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -46,7 +46,7 @@
 
 					
 %%%-----------------------------------------------------------------
-%%% This module implemets the Message Processing and Dispatch part of
+%%% This module implements the Message Processing and Dispatch part of
 %%% the multi-lingual SNMP agent.
 %%%
 %%% The MPD is responsible for:
@@ -63,7 +63,7 @@
 %%% the counters only, it does not provide instrumentation functions
 %%% for the counters.
 %%%
-%%% With the terms defined in rfc2271, this module implememts part
+%%% With the terms defined in rfc2271, this module implements part
 %%% of the Dispatcher and the Message Processing functionality.
 %%%-----------------------------------------------------------------
 init(Vsns) ->
@@ -310,7 +310,16 @@ process_v3_msg(NoteStore, Msg, Hdr, Data, Address, Log) ->
  		    {ok, 'version-3', PDU, PduMMS, ok};
  		_ when is_tuple(Note) ->
  		    ?vlog("process_v3_msg -> 7.2.11b: error"
- 			  "~n   Note: ~p", [Note]),
+ 			  "~n      Note:        ~p"
+ 			  "~n      SecEngineID: ~p"
+ 			  "~n      MsgSecModel: ~p"
+ 			  "~n      SecName:     ~p"
+ 			  "~n      SecLevel:    ~p"
+ 			  "~n      CtxEngineID: ~p"
+ 			  "~n      CtxName:     ~p",
+                          [Note,
+                           SecEngineID, MsgSecModel, SecName, SecLevel,
+                           CtxEngineID, CtxName]),
 		    Recv  = {SecEngineID, MsgSecModel, SecName, SecLevel,
 			     CtxEngineID, CtxName, PDU#pdu.request_id}, 
 		    Err   = sec_error(Note, Recv), 
@@ -576,7 +585,7 @@ sec_module(?SEC_USM) ->
 %%       securityEngineID is set to the value of the target entity's
 %%       snmpEngineID.
 %% 
-%% As we never send traps, the SecEngineID is allways the 
+%% As we never send traps, the SecEngineID is always the 
 %% snmpEngineID of the target entity!
 sec_engine_id(TargetName) ->
     case get_agent_engine_id(TargetName) of
@@ -591,7 +600,7 @@ sec_engine_id(TargetName) ->
 
 
 %% BMK BMK BMK
-%% This one looks very similar to lik generate_v1_v2c_response_msg!
+%% This one looks very similar to link generate_v1_v2c_response_msg!
 %% Common/shared? Should there be differences?
 %% 
 generate_v1_v2c_msg(Vsn, Pdu, Community, Log) ->
@@ -861,7 +870,7 @@ get_max_message_size() ->
 	{ok, MMS} ->
 	    MMS;
 	E ->
-	    user_err("failed retreiving engine max message size: ~w", [E]),
+	    user_err("failed retrieving engine max message size: ~w", [E]),
 	    484
     end.
 

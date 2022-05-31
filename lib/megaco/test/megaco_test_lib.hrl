@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 1999-2021. All Rights Reserved.
+%% Copyright Ericsson AB 1999-2022. All Rights Reserved.
 %% 
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -49,6 +49,9 @@
 -define(SKIP(Reason),
 	?LIB:skip(Reason, ?MODULE, ?LINE)).
 
+-define(FAIL(Reason),
+	exit({Reason, ?MODULE, ?LINE})).
+
 -define(VERIFYL(Expected, Expr),
 	fun(A,B) when list(A), list(B) ->
 		A1 = lists:sort(A),
@@ -82,13 +85,19 @@
 -define(MULTI_RECEIVE(Expected),
 	?VERIFY(lists:sort(Expected), lists:sort(?LIB:flush()))).
 
+-define(EXEC(F),     ?LIB:executor(F)).
+-define(EXEC(F, TO), ?LIB:executor(F, TO)).
+
 -define(TRY_TC(TCN, N, V, PRE, CASE, POST),
         ?LIB:try_tc(TCN, N, V, PRE, CASE, POST)).
+-define(TRY_TC(TCN, N, V, COND, PRE, CASE, POST),
+        ?LIB:try_tc(TCN, N, V, COND, PRE, CASE, POST)).
 
 -define(ACQUIRE_NODES(N, Config),
 	?LIB:prepare_test_case([init, {stop_app, megaco}],
                                N, Config, ?FILE, ?LINE)).
 
+-define(MK_NODES(N),               ?LIB:mk_nodes(N)).
 -define(START_NODE(Node, Force),   ?LIB:start_node(Node, Force, ?FILE, ?LINE)).
 -define(START_NODE(Node),          ?START_NODE(Node, false)).
 -define(START_NODES(Nodes, Force), ?LIB:start_nodes(Nodes, Force, ?FILE, ?LINE)).
@@ -118,10 +127,21 @@
 
 -define(ANNOUNCE_SUITE_INIT(),
 	io:format(user, "~n*** ~s *** suite ~w init~n~n", [?FTS(), ?MODULE])).
+-define(ANNOUNCE_SUITE_END(),
+	io:format(user, "~n*** ~s *** suite ~w end~n~n", [?FTS(), ?MODULE])).
 -define(ANNOUNCE_GROUP_INIT(GR),
 	io:format(user, "~n*** ~s *** group ~w:~w init~n~n", 
+		  [?FTS(), ?MODULE, GR])).
+-define(ANNOUNCE_GROUP_END(GR),
+	io:format(user, "~n*** ~s *** group ~w:~w end~n~n", 
 		  [?FTS(), ?MODULE, GR])).
 -define(ANNOUNCE_CASE_INIT(C),
 	io:format(user, "~n*** ~s *** case ~w:~w init~n~n", 
 		  [?FTS(), ?MODULE, C])).
+-define(ANNOUNCE_CASE_END(C),
+	io:format(user, "~n*** ~s *** case ~w:~w end~n~n", 
+		  [?FTS(), ?MODULE, C])).
 
+-define(UNIQUE(__PreName__),
+        list_to_atom(
+          ?F("~w_~w", [__PreName__, erlang:system_time(millisecond)]))).

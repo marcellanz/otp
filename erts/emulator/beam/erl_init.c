@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 1997-2020. All Rights Reserved.
+ * Copyright Ericsson AB 1997-2022. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -37,7 +37,6 @@
 #include "erl_mseg.h"
 #include "erl_threads.h"
 #include "erl_hl_timer.h"
-#include "erl_mtrace.h"
 #include "erl_printf_term.h"
 #include "erl_misc_utils.h"
 #include "packet_parser.h"
@@ -53,6 +52,7 @@
 #include "erl_osenv.h"
 #include "erl_proc_sig_queue.h"
 #include "beam_load.h"
+#include "erl_global_literals.h"
 
 #include "jit/beam_asm.h"
 
@@ -74,7 +74,6 @@ const int etp_smp_compiled = 1;
 const int etp_thread_compiled = 1;
 const char etp_erts_version[] = ERLANG_VERSION;
 const char etp_otp_release[] = ERLANG_OTP_RELEASE;
-const char etp_compile_date[] = ERLANG_COMPILE_DATE;
 const char etp_arch[] = ERLANG_ARCHITECTURE;
 #if ERTS_ENABLE_KERNEL_POLL
 const int erts_use_kernel_poll = 1;
@@ -133,12 +132,6 @@ static int modified_sched_thread_suggested_stack_size = 0;
 
 Eterm erts_init_process_id = ERTS_INVALID_PID;
 
-/*
- * Note about VxWorks: All variables must be initialized by executable code,
- * not by an initializer. Otherwise a new instance of the emulator will
- * inherit previous values.
- */
-
 extern void erl_crash_dump_v(char *, int, const char *, va_list);
 #ifdef __WIN32__
 extern void ConNormalExit(void);
@@ -151,6 +144,7 @@ static void erl_init(int ncpu,
 		     int port_tab_sz,
 		     int port_tab_sz_ignore_files,
 		     int legacy_port_tab,
+                     Uint sys_proc_outst_req_lim,
 		     int time_correction,
 		     ErtsTimeWarpMode time_warp_mode,
 		     int node_tab_delete_delay,
@@ -302,6 +296,17 @@ void erl_error(const char *fmt, va_list args)
 
 static int early_init(int *argc, char **argv);
 
+static void init_constant_literals(void) {
+       Eterm* hp = erts_alloc_global_literal(ERTS_LIT_EMPTY_TUPLE, 2);
+       Eterm tuple;
+       hp[0] = make_arityval_zero();
+       hp[1] = make_arityval_zero();
+       tuple = make_tuple(hp);
+       erts_register_global_literal(ERTS_LIT_EMPTY_TUPLE, tuple);
+       ERTS_GLOBAL_LIT_EMPTY_TUPLE =
+           erts_get_global_literal(ERTS_LIT_EMPTY_TUPLE);
+}
+
 static void
 erl_init(int ncpu,
 	 int proc_tab_sz,
@@ -309,11 +314,13 @@ erl_init(int ncpu,
 	 int port_tab_sz,
 	 int port_tab_sz_ignore_files,
 	 int legacy_port_tab,
+         Uint sys_proc_outst_req_lim,
 	 int time_correction,
 	 ErtsTimeWarpMode time_warp_mode,
 	 int node_tab_delete_delay,
 	 ErtsDbSpinCount db_spin_count)
 {
+    init_constant_literals();
     erts_monitor_link_init();
     erts_bif_unique_init();
     erts_proc_sig_queue_init(); /* Must be after erts_bif_unique_init(); */
@@ -369,7 +376,7 @@ erl_init(int ncpu,
     erts_init_unicode(); /* after RE to get access to PCRE unicode */
     erts_init_external();
     erts_init_map();
-    erts_beam_bif_load_init();
+    erts_beam_bif_load_init(sys_proc_outst_req_lim);
     erts_delay_trap = erts_export_put(am_erlang, am_delay_trap, 2);
     erts_late_init_process();
 #if HAVE_ERTS_MSEG
@@ -380,6 +387,7 @@ erl_init(int ncpu,
     packet_parser_init();
     erl_nif_init();
     erts_msacc_init();
+    beamfile_init();
 }
 
 static Eterm
@@ -643,7 +651,7 @@ void erts_usage(void)
 
 #ifdef BEAMASM
     erts_fprintf(stderr, "-JDdump bool   enable or disable dumping of generated assembly code for each module loaded\n");
-    erts_fprintf(stderr, "-JDperf bool   enable or disable support for perf on Linux\n");
+    erts_fprintf(stderr, "-JPperf bool   enable or disable support for perf on Linux\n");
     erts_fprintf(stderr, "\n");
 #endif
 
@@ -682,6 +690,7 @@ void erts_usage(void)
     erts_fprintf(stderr, "               none | very_short | short | medium | long | very_long\n");
     erts_fprintf(stderr, "-scl bool      enable/disable compaction of scheduler load\n");
     erts_fprintf(stderr, "-sct cput      set cpu topology\n");
+    erts_fprintf(stderr, "-ssrct         skip reading cpu topology\n");
     erts_fprintf(stderr, "-secio bool    enable or disable eager check I/O scheduling\n");
 #if ERTS_HAVE_SCHED_UTIL_BALANCING_SUPPORT_OPT
     erts_fprintf(stderr, "-sub bool      enable or disable scheduler utilization balancing\n");
@@ -752,6 +761,9 @@ void erts_usage(void)
     erts_fprintf(stderr, "-zdntgc time   set delayed node table gc in seconds;\n");
     erts_fprintf(stderr, "               valid values are infinity or integers in the range [0-%d]\n",
 		 ERTS_NODE_TAB_DELAY_GC_MAX);
+    erts_fprintf(stderr, "-zosrl number  set outstanding requests limit for system processes,\n");
+    erts_fprintf(stderr, "               valid range [1-%d]\n",
+                 ERTS_MAX_PROCESSES);
     erts_fprintf(stderr, "\n");
     erts_fprintf(stderr, "Note that if the emulator is started with erlexec (typically\n");
     erts_fprintf(stderr, "from the erl script), these flags should be specified with +.\n");
@@ -823,12 +835,14 @@ early_init(int *argc, char **argv) /*
     int dirty_cpu_scheds_pctg = 100;
     int dirty_cpu_scheds_onln_pctg = 100;
     int dirty_io_scheds;
+    int aux_threads = 1;
     int max_reader_groups;
     int reader_groups;
     int max_decentralized_counter_groups;
     int decentralized_counter_groups;
     char envbuf[21]; /* enough for any 64-bit integer */
     size_t envbufsz;
+    int skip_read_topology = 0;
 
     erts_save_emu_args(*argc, argv);
 
@@ -968,7 +982,18 @@ early_init(int *argc, char **argv) /*
 		    }
 		    break;
 		}
-
+		case 's' : {
+		    char *sub_param = argv[i]+2;
+		    if (has_prefix("srct", sub_param)) {
+			/* skip reading cpu topology */
+			skip_read_topology = 1;
+		    }
+		    else if (has_prefix("ct", sub_param)) {
+			/* cpu topology */
+			skip_read_topology = 1;
+		    }
+		    break;
+		}
 		case 'S' :
 		    if (argv[i][2] == 'P') {
 			int ptot, ponln;
@@ -1227,11 +1252,12 @@ early_init(int *argc, char **argv) /*
     erts_no_dirty_cpu_schedulers = no_dirty_cpu_schedulers = dirty_cpu_scheds;
     no_dirty_cpu_schedulers_online = dirty_cpu_scheds_online;
     erts_no_dirty_io_schedulers = no_dirty_io_schedulers = dirty_io_scheds;
-    erts_early_init_scheduling(no_schedulers);
+    erts_early_init_scheduling(no_schedulers + 1 + dirty_cpu_scheds);
 
     alloc_opts.ncpu = ncpu;
     erts_alloc_init(argc, argv, &alloc_opts); /* Handles (and removes)
 						 -M flags. */
+    aux_threads += erts_no_dirty_alloc_instances;
     /* Require allocators */
 
     erts_init_check_io(argc, argv);
@@ -1241,7 +1267,7 @@ early_init(int *argc, char **argv) /*
      *
      * * Managed threads:
      * ** Scheduler threads (see erl_process.c)
-     * ** Aux thread (see erl_process.c)
+     * ** Aux threads (see erl_process.c)
      * ** Sys message dispatcher thread (see erl_trace.c)
      * ** IO Poll threads (see erl_check_io.c)
      *
@@ -1250,11 +1276,13 @@ early_init(int *argc, char **argv) /*
      * ** Dirty scheduler threads
      */
     erts_thr_progress_init(no_schedulers,
-			   no_schedulers+2+erts_no_poll_threads,
-			   erts_async_max_threads +
-			   erts_no_dirty_cpu_schedulers +
-			   erts_no_dirty_io_schedulers
-			   );
+			   (no_schedulers
+			    + aux_threads
+			    + 1
+			    + erts_no_poll_threads),
+			   (erts_async_max_threads
+			    + erts_no_dirty_cpu_schedulers
+			    + erts_no_dirty_io_schedulers));
     erts_thr_q_init();
     erts_init_utils();
     erts_early_init_cpu_topology(no_schedulers,
@@ -1262,7 +1290,8 @@ early_init(int *argc, char **argv) /*
 				 max_reader_groups,
 				 &reader_groups,
                                  max_decentralized_counter_groups,
-                                 &decentralized_counter_groups);
+                                 &decentralized_counter_groups,
+                                 skip_read_topology);
     erts_flxctr_setup(decentralized_counter_groups);
     {
 	erts_thr_late_init_data_t elid = ERTS_THR_LATE_INIT_DATA_DEF_INITER;
@@ -1317,6 +1346,7 @@ erl_start(int argc, char **argv)
     int port_tab_sz_ignore_files = 0;
     int legacy_proc_tab = 0;
     int legacy_port_tab = 0;
+    Uint sys_proc_outst_req_lim;
     int time_correction;
     ErtsTimeWarpMode time_warp_mode;
     int node_tab_delete_delay = ERTS_NODE_TAB_DELAY_GC_DEFAULT;
@@ -1357,6 +1387,8 @@ erl_start(int argc, char **argv)
 #endif
 
     erts_error_logger_warnings = am_warning;
+
+    sys_proc_outst_req_lim = 2*erts_no_schedulers;
 
     while (i < argc) {
 	if (argv[i][0] != '-') {
@@ -2088,6 +2120,9 @@ erl_start(int argc, char **argv)
 		}
 		erts_runq_supervision_interval = val;
 	    }
+	    else if (has_prefix("srct", sub_param)) {
+		/* skip reading cpu topology, already handled */
+	    }
 	    else {
 		erts_fprintf(stderr, "bad scheduling option %s\n", argv[i]);
 		erts_usage();
@@ -2302,6 +2337,17 @@ erl_start(int argc, char **argv)
 		    erts_usage();
 		}
 	    }
+            else if (has_prefix("osrl", sub_param)) {
+                long val;
+		arg = get_arg(sub_param+4, argv[i+1], &i);
+                errno = 0;
+                val = strtol(arg, NULL, 10);
+                if (errno != 0 || val < 1 || ERTS_MAX_PROCESSES < val) {
+                    erts_fprintf(stderr, "Invalid outstanding requests limit %s\n", arg);
+                    erts_usage();
+                }
+                sys_proc_outst_req_lim = (Uint) val;
+            }
 	    else {
 		erts_fprintf(stderr, "bad -z option %s\n", argv[i]);
 		erts_usage();
@@ -2381,6 +2427,7 @@ erl_start(int argc, char **argv)
 	     port_tab_sz,
 	     port_tab_sz_ignore_files,
 	     legacy_port_tab,
+             sys_proc_outst_req_lim,
 	     time_correction,
 	     time_warp_mode,
 	     node_tab_delete_delay,
@@ -2405,7 +2452,7 @@ erl_start(int argc, char **argv)
 
 	pid = erl_system_process_otp(erts_init_process_id,
                                      "erts_code_purger", !0,
-                                     PRIORITY_NORMAL);
+                                     PRIORITY_HIGH);
 	erts_code_purger
 	    = (Process *) erts_ptab_pix2intptr_ddrb(&erts_proc,
 						    internal_pid_index(pid));
@@ -2414,7 +2461,7 @@ erl_start(int argc, char **argv)
 
 	pid = erl_system_process_otp(erts_init_process_id,
                                      "erts_literal_area_collector",
-                                     !0, PRIORITY_NORMAL);
+                                     !0, PRIORITY_HIGH);
 	erts_literal_area_collector
 	    = (Process *) erts_ptab_pix2intptr_ddrb(&erts_proc,
 						    internal_pid_index(pid));
@@ -2468,13 +2515,21 @@ erl_start(int argc, char **argv)
 __decl_noreturn void erts_thr_fatal_error(int err, const char *what)
 {
     const char *errstr = err ? strerror(err) : NULL;
-    erts_fprintf(stderr,
-		 "Failed to %s: %s%s(%d)\n",
-		 what,
-		 errstr ? errstr : "",
-		 errstr ? " " : "",
-		 err);
-    abort();
+    if (err == ENOMEM) {
+        erts_exit(ERTS_DUMP_EXIT, "Failed to %s: %s%s(%d)\n",
+                  what,
+                  errstr ? errstr : "",
+                  errstr ? " " : "",
+                  err);
+    } else {
+        erts_fprintf(stderr,
+                     "Failed to %s: %s%s(%d)\n",
+                     what,
+                     errstr ? errstr : "",
+                     errstr ? " " : "",
+                     err);
+        abort();
+    }
 }
 
 
@@ -2527,9 +2582,6 @@ static __decl_noreturn void __noreturn
 erts_exit_vv(int n, int flush_async, const char *fmt, va_list args1, va_list args2)
 {
     system_cleanup(flush_async);
-
-    if (erts_mtrace_enabled)
-	erts_mtrace_exit((Uint32) n);
 
     if (fmt != NULL && *fmt != '\0')
 	erl_error(fmt, args2);	/* Print error message. */

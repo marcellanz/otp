@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 1996-2020. All Rights Reserved.
+ * Copyright Ericsson AB 1996-2022. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -267,10 +267,23 @@ get_suspended_on_de(DistEntry *dep, erts_aint32_t unset_qflgs)
 
 static int monitor_connection_down(ErtsMonitor *mon, void *unused, Sint reds)
 {
-    if (erts_monitor_is_origin(mon))
-        erts_proc_sig_send_demonitor(mon);
-    else
-        erts_proc_sig_send_monitor_down(mon, am_noconnection);
+    const ErtsMonitorData *data = erts_monitor_to_data(mon);
+    Eterm from;
+
+    if (erts_monitor_is_origin(mon)) {
+        from = data->u.target.other.item;
+    } else {
+        from = data->origin.other.item;
+    }
+
+    ASSERT(!is_internal_pid(from) && is_internal_pid(mon->other.item));
+
+    if (erts_monitor_is_origin(mon)) {
+        erts_proc_sig_send_demonitor(NULL, from, 0, mon);
+    } else {
+        erts_proc_sig_send_monitor_down(NULL, from, mon, am_noconnection);
+    }
+
     return ERTS_MON_LNK_FIRE_REDS;
 }
 
@@ -282,8 +295,7 @@ static int dist_pend_spawn_exit_connection_down(ErtsMonitor *mon, void *unused, 
 
 static int link_connection_down(ErtsLink *lnk, void *vdist, Sint reds)
 {
-    erts_proc_sig_send_link_exit(NULL, THE_NON_VALUE, lnk,
-                                 am_noconnection, NIL);
+    erts_proc_sig_send_link_exit_noconnection(lnk);
     return ERTS_MON_LNK_FIRE_REDS;
 }
 
@@ -828,8 +840,10 @@ inc_no_nodes(void)
 static void
 kill_dist_ctrl_proc(void *vpid)
 {
-    erts_proc_sig_send_exit(NULL, (Eterm) vpid, (Eterm) vpid,
-                            am_kill, NIL, 0);
+    /* Send a 'kill' exit signal from init process */
+    Process *init_proc = erts_proc_lookup_raw(erts_init_process_id);
+    erts_proc_sig_send_exit(&init_proc->common, erts_init_process_id,
+                            (Eterm)vpid, am_kill, NIL, 0);
 }
 
 static void
@@ -964,6 +978,19 @@ int erts_do_net_exits(DistEntry *dep, Eterm reason)
 
             if (erts_port_task_is_scheduled(&dep->dist_cmd))
                 erts_port_task_abort(&dep->dist_cmd);
+        }
+        else {
+            ASSERT(is_internal_pid(dep->cid));
+            /*
+             * Supervised distribution controllers may exit "normally" with
+             * {shutdown,Reason}. Unwrap such shutdown tuple to get a correct
+             * documented 'nodedown_reason' from net_kernel:montitor_nodes.
+             */
+            if (is_tuple_arity(reason, 2)) {
+                Eterm* tpl = tuple_val(reason);
+                if (tpl[1] == am_shutdown)
+                    reason = tpl[2];
+            }
         }
 
 	if (dep->state == ERTS_DE_STATE_EXITING) {
@@ -1315,7 +1342,7 @@ erts_dsig_send_unlink(ErtsDSigSendContext *ctx, Eterm local, Eterm remote, Uint6
          * end up in an inconsistent state as we could before the new link
          * protocol was introduced...
          */
-        erts_proc_sig_send_dist_unlink_ack(ctx->c_p, ctx->dep, ctx->connection_id,
+        erts_proc_sig_send_dist_unlink_ack(ctx->dep, ctx->connection_id,
                                            remote, local, id);
         ctl = TUPLE3(&ctx->ctl_heap[0], make_small(DOP_UNLINK), local, remote);
     }
@@ -1582,12 +1609,12 @@ erts_dsig_send_reg_msg(ErtsDSigSendContext* ctx, Eterm remote_name,
 
 /* local has died, deliver the exit signal to remote */
 int
-erts_dsig_send_exit_tt(ErtsDSigSendContext *ctx, Eterm local, Eterm remote, 
+erts_dsig_send_exit_tt(ErtsDSigSendContext *ctx, Process *c_p, Eterm remote, 
 		       Eterm reason, Eterm token)
 {
-    Eterm ctl, msg = THE_NON_VALUE;
+    Eterm ctl, msg = THE_NON_VALUE, local = c_p->common.id;
 #ifdef USE_VM_PROBES
-    Process *sender = ctx->c_p;
+    Process *sender = c_p;
     Sint tok_label = 0;
     Sint tok_lastcnt = 0;
     Sint tok_serial = 0;
@@ -1601,7 +1628,7 @@ erts_dsig_send_exit_tt(ErtsDSigSendContext *ctx, Eterm local, Eterm remote,
         msg = reason;
 
     if (have_seqtrace(token)) {
-	seq_trace_update_serial(ctx->c_p);
+	seq_trace_update_serial(c_p);
 	seq_trace_output_exit(token, reason, SEQ_TRACE_SEND, remote, local);
         if (ctx->dep->dflags & DFLAG_EXIT_PAYLOAD) {
             ctl = TUPLE4(&ctx->ctl_heap[0],
@@ -1701,7 +1728,7 @@ dsig_send_spawn_request(ErtsDSigSendContext *ctx, Eterm ref, Eterm from,
          * Present this as two messages for the sequence tracing.
          * All data except the argument list in the first message
          * and then the argument list as second message (which
-         * willl become an actual message). For more info see
+         * will become an actual message). For more info see
          * handling of seq-trace token in erl_create_process().
          */
         
@@ -2077,11 +2104,10 @@ int erts_net_message(Port *prt,
             ASSERT(eq(ldp->proc.other.item, from));
 
             code = erts_link_dist_insert(&ldp->dist, ede.mld);
-            if (erts_proc_sig_send_link(NULL, to, &ldp->proc)) {
+            if (erts_proc_sig_send_link(NULL, from, to, &ldp->proc)) {
                 if (!code) {
                     /* Race: connection already down => send link exit */
-                    erts_proc_sig_send_link_exit(NULL, THE_NON_VALUE, &ldp->dist,
-                                                 am_noconnection, NIL);
+                    erts_proc_sig_send_link_exit_noconnection(&ldp->dist);
                 }
                 break; /* Done */
             }
@@ -2164,8 +2190,7 @@ int erts_net_message(Port *prt,
         if (is_not_internal_pid(to))
             goto invalid_message;
 
-        erts_proc_sig_send_dist_unlink_ack(NULL, dep, conn_id,
-                                           from, to, id);
+        erts_proc_sig_send_dist_unlink_ack(dep, conn_id, from, to, id);
 	break;
     }
 
@@ -2221,8 +2246,10 @@ int erts_net_message(Port *prt,
                 break;
             }
 
-            if (erts_proc_sig_send_monitor(&mdp->u.target, pid))
+            if (erts_proc_sig_send_monitor(NULL, watcher,
+                                           &mdp->u.target, pid)) {
                 break; /* done */
+            }
 
             /* Failed to send to local proc; cleanup reply noproc... */
 
@@ -2243,8 +2270,7 @@ int erts_net_message(Port *prt,
 
     case DOP_DEMONITOR_P:
 	/* A remote node informs us that a local pid in no longer monitored
-	   We get {DOP_DEMONITOR_P, Remote pid, Local pid or name, ref},
-	   We need only the ref of course */
+	   We get {DOP_DEMONITOR_P, Remote pid, Local pid or name, ref}. */
 
 	if (tuple_arity != 4) {
 	    goto invalid_message;
@@ -2261,9 +2287,9 @@ int erts_net_message(Port *prt,
         if (is_not_external_pid(watcher) || external_pid_dist_entry(watcher) != dep)
             goto invalid_message;
 
-        if (is_internal_pid(watched))
-            erts_proc_sig_send_dist_demonitor(watched, ref);
-        else if (is_external_pid(watched)
+        if (is_internal_pid(watched)) {
+            erts_proc_sig_send_dist_demonitor(watcher, watched, ref);
+        } else if (is_external_pid(watched)
                  && external_pid_dist_entry(watched) == erts_this_dist_entry) {
             /* old incarnation; ignore it */
             ;
@@ -2276,13 +2302,14 @@ int erts_net_message(Port *prt,
                 mon = erts_monitor_tree_lookup(ede.mld->orig_name_monitors, ref);
                 if (mon)
                     erts_monitor_tree_delete(&ede.mld->orig_name_monitors, mon);
-            }
-            else
+            } else {
                 mon = NULL;
+            }
             erts_mtx_unlock(&ede.mld->mtx);
 
-            if (mon)
-                erts_proc_sig_send_demonitor(mon);
+            if (mon) {
+                erts_proc_sig_send_demonitor(NULL, watcher, 0, mon);
+            }
         }
         else
             goto invalid_message;
@@ -2367,13 +2394,14 @@ int erts_net_message(Port *prt,
 #ifdef ERTS_DIST_MSG_DBG
 	dist_msg_dbg(edep, "MSG", buf, orig_len);
 #endif
-	to = tuple[3];
-	if (is_not_pid(to))
-	    goto invalid_message;
-	rp = erts_proc_lookup(to);
+        from = tuple[2];
+        to = tuple[3];
+        if (is_not_pid(to))
+            goto invalid_message;
+        rp = erts_proc_lookup(to);
 
-	if (rp) {
-	    erts_queue_dist_message(rp, 0, edep, ede_hfrag, token, am_Empty);
+        if (rp) {
+            erts_queue_dist_message(rp, 0, edep, ede_hfrag, token, from);
         } else if (ede_hfrag != NULL) {
             erts_free_dist_ext_copy(erts_get_dist_ext(ede_hfrag));
             free_message_buffer(ede_hfrag);
@@ -2398,12 +2426,12 @@ int erts_net_message(Port *prt,
 #ifdef ERTS_DIST_MSG_DBG
 	dist_msg_dbg(edep, "ALIAS MSG", buf, orig_len);
 #endif
-
-	to = tuple[3];
-        if (is_not_ref(to))
-	    goto invalid_message;
-            
-        erts_proc_sig_send_dist_to_alias(to, edep, ede_hfrag, token);
+        from = tuple[2];
+        to = tuple[3];
+        if (is_not_ref(to)) {
+            goto invalid_message;
+        }
+        erts_proc_sig_send_dist_to_alias(from, to, edep, ede_hfrag, token);
         break;
         
     case DOP_PAYLOAD_MONITOR_P_EXIT:
@@ -2706,6 +2734,7 @@ int erts_net_message(Port *prt,
         so.group_leader = gl;
         so.mfa = mfa;
         so.dist_entry = dep;
+        so.conn_id = conn_id;
         so.mld = ede.mld;
         so.edep = edep;
         so.ede_hfrag = ede_hfrag;
@@ -2840,10 +2869,8 @@ int erts_net_message(Port *prt,
                                                        ref,
                                                        dep->mld);
             }
-        }
-        else if (lnk && !link_inserted) {
-            erts_proc_sig_send_link_exit(NULL, THE_NON_VALUE, &ldp->dist,
-                                         am_noconnection, NIL);
+        } else if (lnk && !link_inserted) {
+            erts_proc_sig_send_link_exit_noconnection(&ldp->dist);
         }
 
         break;
@@ -2940,6 +2967,11 @@ erts_dsig_prepare(ErtsDSigSendContext *ctx,
                   int no_trap,
 		  int connect)
 {
+    /*
+     * No process imply that we should force data through. That
+     * is, ignore busy state of dist entry and allow enqueue
+     * regardless of its state...
+     */
     int res;
 
     ASSERT(no_trap || proc);
@@ -2984,7 +3016,7 @@ retry:
 	goto fail;
     }
 
-    if (no_suspend) {
+    if (no_suspend && proc) {
 	if (erts_atomic32_read_acqb(&dep->qflgs) & ERTS_DE_QFLG_BUSY) {
 	    res = ERTS_DSIG_PREP_WOULD_SUSPEND;
 	    goto fail;
@@ -3364,6 +3396,7 @@ erts_dsig_send(ErtsDSigSendContext *ctx)
 		    erts_mtx_unlock(&dep->qlock);
 
 		    plp = erts_proclist_create(ctx->c_p);
+
 		    erts_suspend(ctx->c_p, ERTS_PROC_LOCK_MAIN, NULL);
 		    suspended = 1;
 		    erts_mtx_lock(&dep->qlock);
@@ -3434,12 +3467,15 @@ erts_dsig_send(ErtsDSigSendContext *ctx)
 		}
                 /* More fragments left to be sent, yield and re-schedule */
                 if (ctx->fragments) {
+                    ctx->c_p->flags |= F_FRAGMENTED_SEND;
                     retval = ERTS_DSIG_SEND_CONTINUE;
                     if (!resume && erts_system_monitor_flags.busy_dist_port)
                         monitor_generic(ctx->c_p, am_busy_dist_port, cid);
                     goto done;
                 }
 	    }
+
+            if (ctx->c_p) ctx->c_p->flags &= ~F_FRAGMENTED_SEND;
 	    ctx->obuf = NULL;
 
 	    if (suspended) {
@@ -3811,7 +3847,7 @@ erts_dist_command(Port *prt, int initial_reds)
 	/*
 	 * Everything that was buffered when we started have now been
 	 * written to the port. If port isn't busy but dist entry is
-	 * and we havn't got too muched queued on dist entry, set
+	 * and we haven't got too muched queued on dist entry, set
 	 * dist entry in a non-busy state and resume suspended
 	 * processes.
 	 */
@@ -3823,9 +3859,8 @@ erts_dist_command(Port *prt, int initial_reds)
 	obufsize = 0;
 	if (!(sched_flags & ERTS_PTS_FLG_BUSY_PORT)
 	    && de_busy && qsize < erts_dist_buf_busy_limit) {
-	    ErtsProcList *suspendees;
 	    int resumed;
-	    suspendees = get_suspended_on_de(dep, ERTS_DE_QFLG_BUSY);
+	    ErtsProcList *suspendees = get_suspended_on_de(dep, ERTS_DE_QFLG_BUSY);
 	    erts_mtx_unlock(&dep->qlock);
 
 	    resumed = erts_resume_processes(suspendees);
@@ -4632,13 +4667,13 @@ BIF_RETTYPE setnode_2(BIF_ALIST_2)
     if (!is_node_name_atom(BIF_ARG_1))
 	goto error;
 
-    if (BIF_ARG_1 == am_Noname) /* cant use this name !! */
+    if (BIF_ARG_1 == am_Noname) /* can't use this name !! */
 	goto error;
     if (erts_is_alive)     /* must not be alive! */
 	goto error;
 
     /* Check that all trap functions are defined !! */
-    if (dmonitor_node_trap->addresses[0] == NULL) {
+    if (dmonitor_node_trap->dispatch.addresses[0] == NULL) {
 	goto error;
     }
 
@@ -4709,7 +4744,6 @@ typedef struct {
     int de_locked;
     Uint64 dflags;
     Uint32 creation;
-    Uint version;
     Eterm setup_pid;
     Process *net_kernel;
 } ErtsSetupConnDistCtrl;
@@ -4728,7 +4762,6 @@ BIF_RETTYPE erts_internal_create_dist_channel_3(BIF_ALIST_3)
 {
     BIF_RETTYPE ret;
     Uint64 flags;
-    Uint version;
     Uint32 creation;
     Eterm *hp, res_tag = THE_NON_VALUE, res = THE_NON_VALUE;
     DistEntry *dep = NULL;
@@ -4761,7 +4794,7 @@ BIF_RETTYPE erts_internal_create_dist_channel_3(BIF_ALIST_3)
     if (!is_internal_port(BIF_ARG_2) && !is_internal_pid(BIF_ARG_2))
         goto badarg;
 
-    if (!is_tuple_arity(BIF_ARG_3, 3))
+    if (!is_tuple_arity(BIF_ARG_3, 2))
         goto badarg;
 
     tpl = tuple_val(BIF_ARG_3);
@@ -4770,16 +4803,8 @@ BIF_RETTYPE erts_internal_create_dist_channel_3(BIF_ALIST_3)
     if (!term_to_Uint64(tpl[1], &flags))
         goto badarg;
 
-    /* Version... */
-    if (!is_small(tpl[2]))
-        goto badarg;
-    version = unsigned_val(tpl[2]);
-
-    if (version == 0)
-        goto badarg;
-
     /* Creation... */
-    if (!term_to_Uint32(tpl[3], &creation))
+    if (!term_to_Uint32(tpl[2], &creation))
         goto badarg;
 
     if (~flags & DFLAG_DIST_MANDATORY) {
@@ -4824,7 +4849,6 @@ BIF_RETTYPE erts_internal_create_dist_channel_3(BIF_ALIST_3)
             scdc.de_locked = 1;
             scdc.dflags = flags;
             scdc.creation = creation;
-            scdc.version = version;
             scdc.setup_pid = BIF_P->common.id;
             scdc.net_kernel = net_kernel;
 
@@ -4854,7 +4878,6 @@ BIF_RETTYPE erts_internal_create_dist_channel_3(BIF_ALIST_3)
             scdcp->de_locked = 0;
             scdcp->dflags = flags;
             scdcp->creation = creation;
-            scdcp->version = version;
             scdcp->setup_pid = BIF_P->common.id;
             scdcp->net_kernel = net_kernel;
 
@@ -5915,15 +5938,6 @@ error:
 }
 
 /**********************************************************************/
-/* is_alive() -> Bool */
-
-BIF_RETTYPE is_alive_0(BIF_ALIST_0)
-{
-    Eterm res = erts_is_alive ? am_true : am_false;
-    BIF_RET(res);
-}
-
-/**********************************************************************/
 /* erlang:monitor_node(Node, Bool, Options) -> Bool */
 
 static BIF_RETTYPE
@@ -6437,12 +6451,8 @@ send_nodes_mon_msgs(Process *c_p, Eterm what, Eterm node, Eterm type, Eterm reas
 
         hsz += hp - &tmp_heap[0];
 
-        erts_proc_sig_send_persistent_monitor_msg(ERTS_MON_TYPE_NODES,
-                                                  nmdp[i].options,
-                                                  am_system,
-                                                  nmdp[i].pid,
-                                                  msg,
-                                                  hsz);
+        erts_proc_sig_send_monitor_nodes_msg(nmdp[i].options, nmdp[i].pid,
+                                             msg, hsz);
     }
 
     if (nmdp != &def_buf[0])

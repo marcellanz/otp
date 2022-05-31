@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 1996-2020. All Rights Reserved.
+ * Copyright Ericsson AB 1996-2022. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -134,12 +134,19 @@ process_killer(void)
 		if ((j = sys_get_key(0)) <= 0)
 		    erts_exit(0, "");
 		switch(j) {
-		case 'k':
+                case 'k':
+                {
+                    Process *init_proc;
+
                     ASSERT(erts_init_process_id != ERTS_INVALID_PID);
+                    init_proc = erts_proc_lookup_raw(erts_init_process_id);
+
                     /* Send a 'kill' exit signal from init process */
-                    erts_proc_sig_send_exit(NULL, erts_init_process_id,
-                                            rp->common.id, am_kill, NIL,
-                                            0);
+                    erts_proc_sig_send_exit(&init_proc->common,
+                                            erts_init_process_id,
+                                            rp->common.id,
+                                            am_kill, NIL, 0);
+                }
 		case 'n': br = 1; break;
 		case 'r': return;
 		default: return;
@@ -300,7 +307,8 @@ print_process_info(fmtfn_t to, void *to_arg, Process *p, ErtsProcLocks orig_lock
 		   p->current->arity);
     }
 
-    erts_print(to, to_arg, "Spawned by: %T\n", p->parent);
+    erts_print(to, to_arg, "Spawned by: %T\n",
+               p->parent == am_undefined ? NIL : p->parent);
 
     if (locks & ERTS_PROC_LOCK_MAIN) {
         erts_proc_lock(p, ERTS_PROC_LOCK_MSGQ);
@@ -616,9 +624,6 @@ do_break(void)
 	    erts_printf("Erlang (%s) emulator version "
 		       ERLANG_VERSION "\n",
 		       EMULATOR);
-#if ERTS_SAVED_COMPILE_TIME
-	    erts_printf("Compiled on " ERLANG_COMPILE_DATE "\n");
-#endif
 	    return;
 	case 'd':
 	    distribution_info(ERTS_PRINT_STDOUT, NULL);
@@ -708,25 +713,35 @@ bin_check(void)
 {
     Process  *rp;
     struct erl_off_heap_header* hdr;
+    struct erl_off_heap_header* oh_list;
     int i, printed = 0, max = erts_ptab_max(&erts_proc);
+
 
     for (i=0; i < max; i++) {
 	rp = erts_pix2proc(i);
 	if (!rp)
 	    continue;
-	for (hdr = rp->off_heap.first; hdr; hdr = hdr->next) {
-	    if (hdr->thing_word == HEADER_PROC_BIN) {
-		ProcBin *bp = (ProcBin*) hdr;
-		if (!printed) {
-		    erts_printf("Process %T holding binary data \n", rp->common.id);
-		    printed = 1;
-		}
-		erts_printf("%p orig_size: %bpd, norefs = %bpd\n",
-			    bp->val, 
-			    bp->val->orig_size, 
-			    erts_refc_read(&bp->val->intern.refc, 1));
-	    }
-	}
+
+        oh_list = rp->off_heap.first;
+        for (;;) {
+            for (hdr = oh_list; hdr; hdr = hdr->next) {
+                if (hdr->thing_word == HEADER_PROC_BIN) {
+                    ProcBin *bp = (ProcBin*) hdr;
+                    if (!printed) {
+                        erts_printf("Process %T holding binary data \n", rp->common.id);
+                        printed = 1;
+                    }
+                    erts_printf("%p orig_size: %bpd, norefs = %bpd\n",
+                                bp->val,
+                                bp->val->orig_size,
+                                erts_refc_read(&bp->val->intern.refc, 1));
+                }
+            }
+            if (oh_list == rp->wrt_bins)
+                break;
+            oh_list = rp->wrt_bins;
+        }
+
 	if (printed) {
 	    erts_printf("--------------------------------------\n");
 	    printed = 0;
@@ -797,27 +812,9 @@ erl_crash_dump_v(char *file, int line, const char* fmt, va_list args)
        crash dump. */
     erts_thr_progress_fatal_error_block(&tpd_buf);
 
-#ifdef ERTS_SYS_SUSPEND_SIGNAL
-    /*
-     * We suspend all scheduler threads so that we can dump some
-     * data about the currently running processes and scheduler data.
-     * We have to be very very careful when doing this as the schedulers
-     * could be anywhere.
-     */
-    sys_init_suspend_handler();
-
-    for (i = 0; i < erts_no_schedulers; i++) {
-        erts_tid_t tid = ERTS_SCHEDULER_IX(i)->tid;
-        if (!erts_equal_tids(tid,erts_thr_self()))
-            sys_thr_suspend(tid);
-    }
-
-#endif
-
     /* Allow us to pass certain places without locking... */
     erts_atomic32_set_mb(&erts_writing_erl_crash_dump, 1);
     erts_tsd_set(erts_is_crash_dumping_key, (void *) 1);
-
 
     envsz = sizeof(env);
     /* ERL_CRASH_DUMP_SECONDS not set
@@ -916,6 +913,27 @@ erl_crash_dump_v(char *file, int line, const char* fmt, va_list args)
     time(&now);
     erts_cbprintf(to, to_arg, "=erl_crash_dump:0.5\n%s", ctime(&now));
 
+#ifdef ERTS_SYS_SUSPEND_SIGNAL
+    /*
+     * We suspend all scheduler threads so that we can dump some
+     * data about the currently running processes and scheduler data.
+     * We have to be very very careful when doing this as the schedulers
+     * could be anywhere.
+     * It may happen that scheduler thread is suspended while holding
+     * malloc lock. Therefore code running in this thread must not use
+     * it, or it will deadlock. ctime and fdopen calls both use malloc
+     * internally and must be executed prior to.
+     */
+    sys_init_suspend_handler();
+
+    for (i = 0; i < erts_no_schedulers; i++) {
+        erts_tid_t tid = ERTS_SCHEDULER_IX(i)->tid;
+        if (!erts_equal_tids(tid,erts_thr_self()))
+            sys_thr_suspend(tid);
+    }
+
+#endif
+
     if (file != NULL)
        erts_cbprintf(to, to_arg, "The error occurred in file %s, line %d\n", file, line);
 
@@ -925,9 +943,6 @@ erl_crash_dump_v(char *file, int line, const char* fmt, va_list args)
     }
     erts_cbprintf(to, to_arg, "System version: ");
     erts_print_system_version(to, to_arg, NULL);
-#if ERTS_SAVED_COMPILE_TIME
-    erts_cbprintf(to, to_arg, "%s\n", "Compiled: " ERLANG_COMPILE_DATE);
-#endif
 
     erts_cbprintf(to, to_arg, "Taints: ");
     erts_print_nif_taints(to, to_arg);

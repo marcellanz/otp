@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 1997-2016. All Rights Reserved.
+%% Copyright Ericsson AB 1997-2021. All Rights Reserved.
 %% 
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -435,7 +435,7 @@ check_password(User, Password, _Dir, DirData) ->
     end.
 
 
-%% Middle API. Theese functions call the appropriate authentication module.
+%% Middle API. These functions call the appropriate authentication module.
 int_get_user(DirData, User) ->    
     AuthMod = auth_mod_name(DirData), 
     apply(AuthMod, get_user, [DirData, User]).

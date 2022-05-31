@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 2002-2018. All Rights Reserved.
+%% Copyright Ericsson AB 2002-2021. All Rights Reserved.
 %% 
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -151,7 +151,7 @@ cancel_request(RequestId, ProfileName) ->
 %%	RequestId - reference()
 %%      ProfileName = atom()
 %%
-%% Description: Inform tha manager that a request has been completed.
+%% Description: Inform the manager that a request has been completed.
 %%--------------------------------------------------------------------
 
 request_done(RequestId, ProfileName) ->
@@ -494,7 +494,7 @@ handle_call(info, _, State) ->
 
 handle_call(Req, From, #state{profile_name = ProfileName} = State) ->
     error_report(ProfileName, 
-		 "received unkown request"
+		 "received unknown request"
 		 "~n   Req:  ~p"
 		 "~n   From: ~p", [Req, From]),
     {reply, {error, 'API_violation'}, State}.
@@ -524,7 +524,7 @@ handle_cast({cancel_request, RequestId},
 	    #state{handler_db = HandlerDb} = State) ->
     case ets:lookup(HandlerDb, RequestId) of
 	[] ->
-	    %% Request already compleated nothing to 
+	    %% Request already completed nothing to 
 	    %% cancel
 	    {noreply, State};
 	[{_, Pid, _}] ->
@@ -581,7 +581,7 @@ handle_cast({store_cookies, {Cookies, _}}, State) ->
 
 handle_cast(Msg, #state{profile_name = ProfileName} = State) ->
     error_report(ProfileName, 
-		 "recived unknown message"
+		 "received unknown message"
 		 "~n   Msg: ~p", [Msg]),
     {noreply, State}.
 	    

@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2006-2021. All Rights Reserved.
+%% Copyright Ericsson AB 2006-2022. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -96,12 +96,19 @@ init_per_group(gui = Group, Config) ->
 	    {unix,darwin} ->
 		?P("init_per_group(~w) -> skip", [Group]),
 		exit("Can not test on MacOSX");
+            {unix,sunos} ->
+                exit("Skip on sunos, for now");
 	    {unix, _} ->
+                Display = os:getenv("DISPLAY"),
 		?P("init_per_group(~w) -> DISPLAY ~s",
-                   [Group, os:getenv("DISPLAY")]),
+                   [Group, Display]),
 		case ct:get_config(xserver, none) of
 		    none -> ignore;
-		    Server -> os:putenv("DISPLAY", Server)
+                    Display -> ok;
+		    Server ->
+                        os:putenv("DISPLAY", Server), %% Might work if new node is spawned
+                        io:format("Config sets other x-server than the DISPLAY\n"
+                                  "the DISPLAY variable must be set when starting erlang")
 		end;
 	    _ -> ignore
 	end,
@@ -132,7 +139,7 @@ app_file(suite) ->
 app_file(doc) ->
     ["Testing .app file"];
 app_file(Config) when is_list(Config) ->
-    ?line ok = test_server:app_test(observer),
+    ok = test_server:app_test(observer),
     ok.
 
 %% Testing .appup file
@@ -152,7 +159,7 @@ basic(Config) when is_list(Config) ->
     wx:new(),
     ?P("basic -> try wx destroy"),
     wx:destroy(),
-    timer:send_after(100, "foobar"),
+    timer:start(),
     ?P("basic -> try start distribution"),
     {foo, node@machine} ! dummy_msg,  %% start distribution stuff
     %% Otherwise ever lasting servers gets added to procs

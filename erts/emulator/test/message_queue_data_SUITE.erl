@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 2014-2017. All Rights Reserved.
+%% Copyright Ericsson AB 2014-2022. All Rights Reserved.
 %% 
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -22,9 +22,9 @@
 
 -export([all/0, suite/0, init_per_suite/1, end_per_suite/1]).
 -export([basic/1, process_info_messages/1, total_heap_size/1,
-	 change_to_off_heap/1]).
+	 change_to_off_heap/1, change_to_off_heap_gc/1]).
 
--export([basic_test/1]).
+-export([basic_test/1, id/1]).
 
 -include_lib("common_test/include/ct.hrl").
 
@@ -40,8 +40,9 @@ end_per_suite(_Config) ->
     erts_debug:set_internal_state(available_internal_state, false),
     ok.
 
-all() -> 
-    [basic, process_info_messages, total_heap_size, change_to_off_heap].
+all() ->
+    [basic, process_info_messages, total_heap_size, change_to_off_heap,
+     change_to_off_heap_gc].
 
 %%
 %%
@@ -53,13 +54,13 @@ basic(Config) when is_list(Config) ->
 
     basic_test(erlang:system_info(message_queue_data)),
 
-    {ok, Node1} = start_node(Config, "+hmqd off_heap"),
+    {ok, Peer1, Node1} = ?CT_PEER(["+hmqd", "off_heap"]),
     ok = rpc:call(Node1, ?MODULE, basic_test, [off_heap]),
-    stop_node(Node1),
+    peer:stop(Peer1),
 
-    {ok, Node2} = start_node(Config, "+hmqd on_heap"),
+    {ok, Peer2, Node2} = ?CT_PEER(["+hmqd", "on_heap"]),
     ok = rpc:call(Node2, ?MODULE, basic_test, [on_heap]),
-    stop_node(Node2),
+    peer:stop(Peer2),
 
     ok.
 
@@ -291,6 +292,28 @@ make_misc_messages(Alias, Lit, Msgs, N) ->
 	       M1, M2, M3, M4, M1, M2, M3, M4],
     make_misc_messages(Alias, Lit, [NewMsgs | Msgs], N-9).
 
+%% Test that setting message queue to off_heap works if a GC is triggered
+%% as the message queue if moved off heap. See GH-5933 for more details.
+%% This testcase will most likely only fail in debug build.
+change_to_off_heap_gc(_Config) ->
+    Msg = {ok, lists:duplicate(20,20)},
+
+    %% We test that this process can receive a message and when it is still
+    %% in its external message queue we change the message queue data to
+    %% off_heap and then GC.
+    {Pid, Ref} = spawn_monitor(
+            fun() ->
+                    spinner(1, 10000),
+                    process_flag(message_queue_data, off_heap),
+                    garbage_collect(),
+                    receive {ok, _M} -> ok end
+            end),
+    Pid ! Msg,
+    receive
+        {'DOWN',Ref,_,_,_} ->
+            ok
+    end.
+
 %%
 %%
 %% helpers
@@ -303,7 +326,7 @@ wait_change_off_heap() ->
     %% has been made on current process if (and only if) it
     %% was previously changed on this process...
     %%
-    %% Work with *current* inplementation! This may change...
+    %% Work with *current* implementation! This may change...
     %%
     erts_debug:set_internal_state(wait, thread_progress),
     %% We have now flushed later ops including later op that
@@ -327,16 +350,9 @@ recv_msgs(Msgs) ->
 	    lists:reverse(Msgs)
     end.
 
-start_node(Config, Opts) when is_list(Config), is_list(Opts) ->
-    Pa = filename:dirname(code:which(?MODULE)),
-    Name = list_to_atom(atom_to_list(?MODULE)
-			++ "-"
-			++ atom_to_list(proplists:get_value(testcase, Config))
-			++ "-"
-			++ integer_to_list(erlang:system_time(second))
-			++ "-"
-			++ integer_to_list(erlang:unique_integer([positive]))),
-    test_server:start_node(Name, slave, [{args, Opts++" -pa "++Pa}]).
+%% This spinner needs to make sure that it does not allocate any memory
+%% as a GC in here will break the test
+spinner(_N, 0) -> ok;
+spinner(N, M) -> spinner(?MODULE:id(N) div 1, M - 1).
 
-stop_node(Node) ->
-    test_server:stop_node(Node).
+id(N) -> N.

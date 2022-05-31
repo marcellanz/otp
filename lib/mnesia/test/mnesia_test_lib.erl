@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1996-2018. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2021. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -62,7 +62,7 @@
 %%% test(TestCases)
 %%%
 %%%    Run parts of the test suite. Uses test/2.
-%%%    Reads Config from mnesia_test.config and starts them if neccessary.
+%%%    Reads Config from mnesia_test.config and starts them if necessary.
 %%%    Kills Mnesia and wipes out the Mnesia directories as a starter.
 %%%
 %%% test(TestCases, Config)
@@ -722,7 +722,7 @@ kill_tc(Pid, Time) ->
 			   "in ~p min~n", [Time div (1000*60)]),
 		    Files = mnesia_lib:dist_coredump(),
 		    ?log("Cores dumped to:~n ~p~n", [Files]),
-		    %% Genarate erlang crashdumps.
+		    %% Generate erlang crashdumps.
 		    %% GenDump = fun(Node) ->
 		    %% 		      File = "CRASH_" ++ atom_to_list(Node) ++ ".dump",
 		    %% 		      rpc:call(Node, os, putenv, ["ERL_CRASH_DUMP", File]),

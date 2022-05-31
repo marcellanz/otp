@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2008-2020. All Rights Reserved.
+%% Copyright Ericsson AB 2008-2021. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -36,7 +36,7 @@
 -export([encode_decode/0,
          encode_decode/1,
          finished_verify_data/0,
-          finished_verify_data/1,
+         finished_verify_data/1,
          '1_RTT_handshake'/0,
          '1_RTT_handshake'/1,
          '0_RTT_handshake'/0,

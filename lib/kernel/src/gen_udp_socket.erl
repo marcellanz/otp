@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2021-2021. All Rights Reserved.
+%% Copyright Ericsson AB 2021-2022. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -38,6 +38,7 @@
          monitor/1, cancel_monitor/1,
          setopts/2, getopts/2,
          sockname/1, peername/1,
+         socknames/1,
          getstat/2
         ]).
 
@@ -115,14 +116,21 @@ close_server(Server) ->
 %% -- connect ----------------------------------------------------------------
 
 connect(?MODULE_socket(_Server, Socket), Address, Port) ->
+    Dest = dest2sockaddr({Address, Port}),
     case os:type() of
         {unix,linux} ->
-            _ = socket:connect(Socket, #{family => unspec}),
-            ok;
+            case socket:peername(Socket) of
+                {error, enotconn} ->
+                    socket:connect(Socket, Dest);
+                {error, closed} = Error ->
+                    Error;
+                _ -> % Matches {ok, _} and unknown errors
+                    _ = socket:connect(Socket, #{family => unspec}),
+                    socket:connect(Socket, Dest)
+            end;
         _ ->
-            ok
-    end,
-    socket:connect(Socket, dest2sockaddr({Address, Port})).
+            socket:connect(Socket, Dest)
+    end.
 
 
 %% -- open -----------------------------------------------------------------
@@ -436,7 +444,7 @@ do_sendmsg(?MODULE_socket(_Server, Socket), SockAddr, IOV, Ctrl)
 recv(Socket, Length) ->
     recv(Socket, Length, infinity).
 
-%% This is a bit wierd. If two calls to recv is made with short intervalls
+%% This is a bit weird. If two calls to recv is made with short intervals
 %% from different processes, with say timeout 10s and then 5s. The second
 %% call will be postponed until the first has been processed, which can
 %% take up to 10s. If the first times out (after 10s) the second is 
@@ -517,6 +525,15 @@ getopts(?MODULE_socket(Server, _Socket), Opts) when is_list(Opts) ->
 sockname(?MODULE_socket(_Server, Socket)) ->
     case socket:sockname(Socket) of
         {ok, SockAddr} -> {ok, address(SockAddr)};
+        {error, _} = Error -> Error
+    end.
+
+
+%% -------------------------------------------------------------------------
+
+socknames(Socket) ->
+    case sockname(Socket) of
+        {ok, Addr} -> {ok, [Addr]};
         {error, _} = Error -> Error
     end.
 
@@ -822,7 +839,7 @@ socket_getopt_opt(Socket, Opt, Tag) ->
 
 %% Its possible for *one* option to be mapped to several 'socket' options.
 %% But, its *always* the first element in th elist that is the "real"
-%% option. This is the one used when *reading*. The other elemnts in the list
+%% option. This is the one used when *reading*. The other elements in the list
 %% is basically side effect options, which is not used when reading.
 socket_getopt_opts([{_Domain, _} = Opt|_], Socket, Tag) ->
     socket_getopt_opt(Socket, Opt, Tag);
@@ -1686,7 +1703,7 @@ handle_recv_error(P, D, ActionsR, Reason) ->
             {next_state, 'open',
              {P, recv_stop(D#{active := false})}, reverse(ActionsR_1)};
         _ ->
-            %% Temporary ... need somthing better here...maybe
+            %% Temporary ... need something better here...maybe
             {next_state, 'open',
              {P, recv_stop(D#{active := false})}, reverse(ActionsR_1)}
     end.
@@ -1833,6 +1850,9 @@ deliver_data(#{addr := #{family := Fam, addr := Addr, port := Port},
     Data  = deliver_data_mode(IOV, Mode),
     Ctrl2 = ctrl2ancdata(Ctrl),
     {Addr, Port, Ctrl2, Data};
+deliver_data({#{family := unspec, addr := Addr}, <<Data/binary>>}, Mode)
+  when is_binary(Addr) ->
+    {{unspec, Addr}, 0, undefined, deliver_data_mode(Data, Mode)};
 deliver_data({Unspec, <<Data/binary>>}, Mode) when is_binary(Unspec) ->
     {{unspec, Unspec}, 0, undefined, deliver_data_mode(Data, Mode)}.
 %% deliver_data(_Arg1, _Arg2) ->

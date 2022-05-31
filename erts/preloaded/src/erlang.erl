@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 1996-2021. All Rights Reserved.
+%% Copyright Ericsson AB 1996-2022. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -74,7 +74,65 @@
 %% the correct function.
 -compile({inline, [badarg_with_info/1,error_with_info/2,
                    error_with_inherited_info/3,badarg_with_cause/2]}).
+-compile(no_auto_import_types).
 
+%% Built-in datatypes
+-type any() :: any().
+-type arity() :: arity().
+-type atom() :: atom().
+-type binary() :: <<_:_*8>>.
+-type bitstring() :: <<_:_*1>>.
+-type bool() :: boolean().
+-type boolean() :: true | false.
+-type byte() :: 0..255.
+-type char() :: 0..16#10FFFF.
+-type float() :: float().
+-type function() :: fun().
+-type identifier() :: pid() | port() | reference().
+-type integer() :: integer().
+-type iodata() :: iolist() | binary().
+-type iolist() :: maybe_improper_list(byte() | binary() | iolist(), binary() | []).
+-type list() :: [any()].
+-type list(ContentType) :: [ContentType].
+-type map() :: #{ any() => any() }.
+-type maybe_improper_list() :: maybe_improper_list(any(), any()).
+-type maybe_improper_list(ContentType, TerminationType) :: maybe_improper_list(ContentType, TerminationType).
+-type mfa() :: {module(),atom(),arity()}.
+-type module() :: atom().
+-type neg_integer() :: neg_integer().
+-type nil() :: [].
+-type no_return() :: none().
+-type node() :: atom().
+-type non_neg_integer() :: non_neg_integer().
+-type none() :: none().
+-type nonempty_binary() :: <<_:8, _:_*8>>.
+-type nonempty_bitstring() :: <<_:1, _:_*1>>.
+-type nonempty_improper_list(ContentType, TerminationType) :: nonempty_improper_list(ContentType, TerminationType).
+-type nonempty_list() :: nonempty_list(any()).
+-type nonempty_list(ContentType) :: [ContentType, ...].
+-type nonempty_maybe_improper_list() :: nonempty_maybe_improper_list(any(), any()).
+-type nonempty_maybe_improper_list(ContentType, TerminationType) :: nonempty_maybe_improper_list(ContentType, TerminationType).
+-type nonempty_string() :: nonempty_list(char()).
+-type number() :: integer() | float().
+-type pid() :: pid().
+-type port() :: port().
+-type pos_integer() :: pos_integer().
+-type reference() :: reference().
+-type string() :: [char()].
+-type term() :: any().
+-type timeout() :: 'infinity' | non_neg_integer().
+-type tuple() :: tuple().
+-export_type([any/0, arity/0, atom/0, binary/0, bitstring/0, bool/0, boolean/0, byte/0,
+              char/0, float/0, function/0, identifier/0, integer/0, iodata/0, iolist/0,
+              list/0, list/1, map/0, maybe_improper_list/0, maybe_improper_list/2, mfa/0,
+              module/0, neg_integer/0, nil/0, no_return/0, node/0, non_neg_integer/0,
+              none/0, nonempty_binary/0, nonempty_bitstring/0, nonempty_improper_list/2,
+              nonempty_list/0, nonempty_list/1, nonempty_maybe_improper_list/0,
+              nonempty_maybe_improper_list/2, nonempty_string/0, number/0, pid/0,
+              port/0, pos_integer/0, reference/0, string/0, term/0, timeout/0,
+              tuple/0]).
+
+%% Datatypes that need an erlang: prefix
 -export_type([timestamp/0]).
 -export_type([time_unit/0]).
 -export_type([deprecated_time_unit/0]).
@@ -128,6 +186,9 @@
 
 -type iovec() :: [binary()].
 -export_type([iovec/0]).
+
+%% Type for the destination of sends.
+-export_type([send_destination/0]).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %% Native code BIF stubs and their types
@@ -946,7 +1007,8 @@ float_to_binary(_Float) ->
       Options :: [Option],
       Option  :: {decimals, Decimals :: 0..253} |
                  {scientific, Decimals :: 0..249} |
-                 compact.
+                 compact |
+                 short.
 float_to_binary(_Float, _Options) ->
     erlang:nif_error(undefined).
 
@@ -962,7 +1024,8 @@ float_to_list(_Float) ->
       Options :: [Option],
       Option  :: {decimals, Decimals :: 0..253} |
                  {scientific, Decimals :: 0..249} |
-                 compact.
+                 compact |
+                 short.
 float_to_list(_Float, _Options) ->
     erlang:nif_error(undefined).
 
@@ -1216,7 +1279,7 @@ iolist_to_iovec(_IoListOrBinary) ->
 %% is_alive/0
 -spec is_alive() -> boolean().
 is_alive() ->
-    erlang:nif_error(undefined).
+    erlang:whereis(net_kernel) =/= undefined.
 
 %% is_builtin/3
 -spec erlang:is_builtin(Module, Function, Arity) -> boolean() when
@@ -1736,6 +1799,7 @@ put(_Key, _Val) ->
     erlang:nif_error(undefined).
 
 %% raise/3
+%% Shadowed by erl_bif_types: erlang:raise/3
 -spec erlang:raise(Class, Reason, Stacktrace) -> 'badarg' when
       Class :: 'error' | 'exit' | 'throw',
       Reason :: term(),
@@ -1828,7 +1892,7 @@ send_after(_Time, _Dest, _Msg, _Options) ->
 %% seq_trace/2
 -spec erlang:seq_trace(P1, P2) -> seq_trace_info_returns() | {term(), term(), term(), term(), term()} when
       P1 :: atom(),
-      P2 :: boolean() | {integer(), integer()} | integer() | [].
+      P2 :: term().
 seq_trace(_P1, _P2) ->
     erlang:nif_error(undefined).
 
@@ -1856,8 +1920,8 @@ setnode(_P1, _P2) ->
 -spec erlang:setnode(Node, DistCtrlr, Opts) -> dist_handle() when
       Node :: atom(),
       DistCtrlr :: port() | pid(),
-      Opts :: {integer(), integer(), pos_integer()}.
-setnode(Node, DistCtrlr, {_Flags, _Ver, _Creation} = Opts) ->
+      Opts :: {integer(), pos_integer()}.
+setnode(Node, DistCtrlr, {_Flags, _Creation} = Opts) ->
     case case erts_internal:create_dist_channel(Node, DistCtrlr, Opts) of
              {ok, DH} -> DH;
              {message, Ref} -> receive {Ref, Res} -> Res end;
@@ -2249,18 +2313,30 @@ is_tuple(_Term) ->
 -spec load_module(Module, Binary) -> {module, Module} | {error, Reason} when
       Module :: module(),
       Binary :: binary(),
-      Reason :: badfile | not_purged | on_load.
+      Reason :: badfile | not_purged | on_load
+              | {features_not_allowed, [atom()]}.
 load_module(Mod, Code) ->
     try
-        case erlang:prepare_loading(Mod, Code) of
-            {error,_}=Error ->
-                Error;
-            Prep when erlang:is_reference(Prep) ->
-                case erlang:finish_loading([Prep]) of
-                    ok ->
-                        {module,Mod};
-                    {Error,[Mod]} ->
-                        {error,Error}
+        Allowed =
+            case erlang:module_loaded(erl_features) of
+                true ->
+                    erl_features:load_allowed(Code);
+                false -> ok
+            end,
+        case Allowed of
+            {not_allowed, NotEnabled} ->
+                {error, {features_not_allowed, NotEnabled}};
+            ok ->
+                case erlang:prepare_loading(Mod, Code) of
+                    {error,_}=Error ->
+                        Error;
+                    Prep when erlang:is_reference(Prep) ->
+                        case erlang:finish_loading([Prep]) of
+                            ok ->
+                                {module,Mod};
+                            {Error,[Mod]} ->
+                                {error,Error}
+                        end
                 end
         end
     catch
@@ -2417,6 +2493,7 @@ process_flag(_Flag, _Value) ->
       monitored_by |
       monitors |
       message_queue_data |
+      parent |
       priority |
       reductions |
       registered_name |
@@ -2461,6 +2538,7 @@ process_flag(_Flag, _Value) ->
        Monitors :: [{process | port, Pid :: pid() | port() |
                                      {RegName :: atom(), Node :: node()}}]} |
       {message_queue_data, MQD :: message_queue_data()} |
+      {parent, pid() | undefined} |
       {priority, Level :: priority_level()} |
       {reductions, Number :: non_neg_integer()} |
       {registered_name, [] | (Atom :: atom())} |
@@ -2497,13 +2575,13 @@ process_info(_Pid,_ItemSpec) ->
     erlang:nif_error(undefined).
 
 -spec erlang:send(Dest, Msg) -> Msg when
-      Dest :: dst(),
+      Dest :: send_destination(),
       Msg :: term().
 send(_Dest,_Msg) ->
     erlang:nif_error(undefined).
 
 -spec erlang:send(Dest, Msg, Options) -> Res when
-      Dest :: dst(),
+      Dest :: send_destination(),
       Msg :: term(),
       Options :: [nosuspend | noconnect],
       Res :: ok | nosuspend | noconnect.
@@ -2642,6 +2720,10 @@ subtract(_,_) ->
                         (multi_scheduling, BlockState) -> OldBlockState when
       BlockState :: block | unblock | block_normal | unblock_normal,
       OldBlockState :: blocked | disabled | enabled;
+                        (outstanding_system_requests_limit, NewLimit) ->
+          OldLimit when
+      NewLimit :: 1..134217727,
+      OldLimit :: 1..134217727;
                         (scheduler_bind_type, How) -> OldBindType when
       How :: scheduler_bind_type() | default_bind,
       OldBindType :: scheduler_bind_type();
@@ -2806,8 +2888,8 @@ tuple_to_list(_Tuple) ->
          (dirty_io_schedulers) -> non_neg_integer();
          (dist) -> binary();
          (dist_buf_busy_limit) -> non_neg_integer();
-         (dist_ctrl) -> {Node :: node(),
-                         ControllingEntity :: port() | pid()};
+         (dist_ctrl) -> [{Node :: node(),
+                          ControllingEntity :: port() | pid()}];
          (driver_version) -> string();
          (dynamic_trace) -> none | dtrace | systemtap;
          (dynamic_trace_probes) -> boolean();
@@ -2841,6 +2923,7 @@ tuple_to_list(_Tuple) ->
          (otp_release) -> string();
          (os_monotonic_time_source) -> [{atom(),term()}];
          (os_system_time_source) -> [{atom(),term()}];
+         (outstanding_system_requests_limit) -> 1..134217727;
          (port_parallelism) -> boolean();
          (port_count) -> non_neg_integer();
          (port_limit) -> pos_integer();
@@ -3184,68 +3267,20 @@ spawn_opt(N, M, F, A, O) when erlang:is_atom(N),
             end;
         {spawn_reply, Ref, error, badopt} ->
             badarg_with_cause([N, M, F, A, O], badopt);
-        {spawn_reply, Ref, error, noconnection} ->
-            try 
+        {spawn_reply, Ref, error, Err0} when Err0 == noconnection;
+                                             Err0 == notsup ->
+            try
                 erlang:spawn_opt(erts_internal,crasher,
-                                 [N,M,F,A,O,noconnection], O)
+                                 [N,M,F,A,O,Err0], O)
             catch
                 _:Err1 ->
                     error_with_info(Err1, [N, M, F, A, O])
             end;
-        {spawn_reply, Ref, error, notsup} ->
-            case old_remote_spawn_opt(N, M, F, A, O) of
-                Pid when erlang:is_pid(Pid) ->
-                    Pid;
-                Err2 ->
-                    error_with_info(Err2, [N, M, F, A, O])
-            end;
-        {spawn_reply, Ref, error, Err3} ->
-            error_with_info(Err3, [N, M, F, A, O])
+        {spawn_reply, Ref, error, Err2} ->
+            error_with_info(Err2, [N, M, F, A, O])
     end;
 spawn_opt(N,M,F,A,O) ->
     badarg_with_info([N,M,F,A,O]).
-
-old_remote_spawn_opt(N, M, F, A, O) ->
-    case lists:member(monitor, O) of
-	true ->
-            badarg;
-	_ ->
-            {L,NO} = lists:foldl(fun (link, {_, NewOpts}) ->
-                                         {link, NewOpts};
-                                     (Opt, {LO, NewOpts}) ->
-                                         {LO, [Opt|NewOpts]}
-                                 end,
-                                 {no_link,[]},
-                                 O),
-            case catch gen_server:call({net_kernel,N},
-                                       {spawn_opt,M,F,A,NO,L,erlang:group_leader()},
-                                       infinity) of
-                Pid when erlang:is_pid(Pid) ->
-                    Pid;
-                Error ->
-                    case remote_spawn_error(Error, {L, N, M, F, A, NO}) of
-                        {fault, Fault} ->
-                            Fault;
-                        Pid ->
-                            Pid
-                    end
-            end
-    end.
-
-remote_spawn_error({'EXIT', {{nodedown,N}, _}}, {L, N, M, F, A, O}) ->
-    {Opts, LL} = case L =:= link of
-		     true ->
-			 {[link|O], [link]};
-		     false ->
-			 {O, []}
-		 end,
-    erlang:spawn_opt(erts_internal,crasher,[N,M,F,A,Opts,noconnection], LL);
-remote_spawn_error({'EXIT', {Reason, _}}, _) ->
-    {fault, Reason};
-remote_spawn_error({'EXIT', Reason}, _) ->
-    {fault, Reason};
-remote_spawn_error(Other, _) ->
-    {fault, Other}.
     
 %%
 %% spawn_request/1
@@ -3457,14 +3492,14 @@ fun_info_1([K|Ks], Fun, A) ->
     end;
 fun_info_1([], _, A) -> A.
 
--type dst() :: pid()
-             | reference()
-             | port()
-             | (RegName :: atom())
-             | {RegName :: atom(), Node :: node()}.
+-type send_destination() :: pid()
+                          | reference()
+                          | port()
+                          | (RegName :: atom())
+                          | {RegName :: atom(), Node :: node()}.
 
 -spec erlang:send_nosuspend(Dest, Msg) -> boolean() when
-      Dest :: dst(),
+      Dest :: send_destination(),
       Msg :: term().
 send_nosuspend(Pid, Msg) ->
     try
@@ -3474,7 +3509,7 @@ send_nosuspend(Pid, Msg) ->
     end.
 
 -spec erlang:send_nosuspend(Dest, Msg, Options) -> boolean() when
-      Dest :: dst(),
+      Dest :: send_destination(),
       Msg :: term(),
       Options :: [noconnect].
 send_nosuspend(Pid, Msg, Opts) ->
@@ -3969,6 +4004,7 @@ rvrs(Xs) -> rvrs(Xs, []).
 rvrs([],Ys) -> Ys;
 rvrs([X|Xs],Ys) -> rvrs(Xs, [X|Ys]).
 
+%% Shadowed by erl_bif_types: erlang:min/2
 -spec min(Term1, Term2) -> Minimum when
       Term1 :: term(),
       Term2 :: term(),
@@ -3976,6 +4012,7 @@ rvrs([X|Xs],Ys) -> rvrs(Xs, [X|Ys]).
 min(A, B) when A > B -> B;
 min(A, _) -> A.
 
+%% Shadowed by erl_bif_types: erlang:max/2
 -spec max(Term1, Term2) -> Maximum when
       Term1 :: term(),
       Term2 :: term(),
@@ -4185,7 +4222,7 @@ receive_emd(Ref, EMD, N) ->
     end.
 
 receive_emd(Ref) ->
-    receive_emd(Ref, #memory{}, erlang:system_info(schedulers)).
+    receive_emd(Ref, #memory{}, erts_internal:no_aux_work_threads()-1).
 
 aa_mem_data(#memory{total = Tot} = Mem,
 	    [{external_alloc, Sz} | Rest]) ->
@@ -4255,7 +4292,7 @@ get_alloc_info(Type, AList) when erlang:is_list(AList) ->
     Ref = erlang:make_ref(),
     erlang:system_info({Type, Ref, AList}),
     receive_allocator(Ref,
-		      erlang:system_info(schedulers),
+		      erts_internal:no_aux_work_threads()-1,
 		      mk_res_list(AList)).
 
 mk_res_list([]) ->
@@ -4396,7 +4433,7 @@ gc_info(Ref, N, {OrigColls,OrigRecl}) ->
 'not'(_A) ->
     erlang:nif_error(undefined).
 
--spec erlang:'!'(dst(), term()) -> term().
+-spec erlang:'!'(send_destination(), term()) -> term().
 '!'(_Dst, _Msg) ->
     erlang:nif_error(undefined).
 

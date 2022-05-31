@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 2002-2018. All Rights Reserved.
+%% Copyright Ericsson AB 2002-2022. All Rights Reserved.
 %% 
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -212,7 +212,7 @@ stream(BodyPart, Request,_) -> % only 200 and 206 responses can be streamed
 %% Description: Initiates the httpc_handler process 
 %%
 %% Note: The init function may not fail, that will kill the
-%% httpc_manager process. We could make the httpc_manager more comlex
+%% httpc_manager process. We could make the httpc_manager more complex
 %% but we do not want that so errors will be handled by the process
 %% sending an init_error message to itself.
 %%--------------------------------------------------------------------
@@ -497,7 +497,7 @@ do_handle_cast({cancel, _},
 
 do_handle_cast(stream_next, #state{session = Session} = State) ->
     activate_once(Session), 
-    %% Inactivate the #state.once here because we don't want
+    %% Deactivate the #state.once here because we don't want
     %% next_body_chunk/1 to activate the socket twice.
     {noreply, State#state{once = inactive}}.
 
@@ -602,8 +602,8 @@ do_handle_info({Proto, Socket, Data},
     {noreply, State};
 
 %% The Server may close the connection to indicate that the
-%% whole body is now sent instead of sending a lengh
-%% indicator. In this case the lengh indicator will be
+%% whole body is now sent instead of sending a length
+%% indicator. In this case the length indicator will be
 %% -1.
 do_handle_info({Info, _}, State = #state{mfa = {_, whole_body, Args}})
   when Info =:= tcp_closed orelse
@@ -962,7 +962,7 @@ handle_http_body(_, #state{status = {ssl_tunnel, _},
 
 handle_http_body(_, #state{status = {ssl_tunnel, Request},
 			   status_line = StatusLine} = State) ->
-    ClientErrMsg = httpc_response:error(Request,{could_no_establish_ssh_tunnel, StatusLine}),
+    ClientErrMsg = httpc_response:error(Request,{could_not_establish_ssl_tunnel, StatusLine}),
     NewState     = answer_request(Request, ClientErrMsg, State),
     {stop, normal, NewState};
 
@@ -1637,14 +1637,14 @@ host_header(_, URI) ->
 tls_upgrade(#state{status = 
 		       {ssl_tunnel, 
 			#request{settings = 
-				     #http_options{ssl = {_, TLSOptions0} = SocketType},
+				     #http_options{ssl = {_, TLSOptions0} = SocketType,
+						   connect_timeout = ConnectTimeout},
 				     address = {Host, _} = Address} = Request},
 		   session = #session{socket = TCPSocket} = Session0,
 		   options = Options} = State) ->
 
     TLSOptions = maybe_add_sni(Host, TLSOptions0),
-
-    case ssl:connect(TCPSocket, TLSOptions) of
+    case ssl:connect(TCPSocket, TLSOptions, ConnectTimeout) of
 	{ok, TLSSocket} ->
 	    ClientClose = httpc_request:is_client_closing(Request#request.headers),
 	    SessionType = httpc_manager:session_type(Options),

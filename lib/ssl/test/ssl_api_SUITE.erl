@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2019-2019. All Rights Reserved.
+%% Copyright Ericsson AB 2019-2022. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -25,6 +25,7 @@
 
 -include_lib("common_test/include/ct.hrl").
 -include_lib("ssl/src/ssl_api.hrl").
+-include_lib("public_key/include/public_key.hrl").
 
 %% Common test
 -export([all/0,
@@ -50,6 +51,10 @@
          peercert/1,
          peercert_with_client_cert/0,
          peercert_with_client_cert/1,
+         select_best_cert/0,
+         select_best_cert/1,
+         select_sha1_cert/0,
+         select_sha1_cert/1,
          connection_information/0,
          connection_information/1,
          secret_connection_info/0,
@@ -58,6 +63,8 @@
          keylog_connection_info/1,
          versions/0,
          versions/1,
+         versions_option_based_on_sni/0,
+         versions_option_based_on_sni/1,
          active_n/0,
          active_n/1,
          dh_params/0,
@@ -171,7 +178,15 @@
          invalid_options_tls13/0,
          invalid_options_tls13/1,
          cookie/0,
-         cookie/1
+         cookie/1,
+	 warn_verify_none/0,
+	 warn_verify_none/1,
+	 suppress_warn_verify_none/0,
+         suppress_warn_verify_none/1,
+         check_random_nonce/0,
+         check_random_nonce/1,
+         cipher_listing/0,
+         cipher_listing/1
         ]).
 
 %% Apply export
@@ -192,6 +207,10 @@
          tls_close/1,
          no_recv_no_active/1,
          ssl_getstat/1,
+	 log/2,
+         get_connection_information/3,
+         protocol_version_check/2,
+         check_peercert/2,
          %%TODO Keep?
          run_error_server/1,
          run_error_server_close/1,
@@ -241,7 +260,8 @@ groups() ->
 since_1_2() ->
     [
      conf_signature_algs,
-     no_common_signature_algs
+     no_common_signature_algs,
+     versions_option_based_on_sni
     ].
 
 pre_1_3() ->
@@ -255,6 +275,8 @@ gen_api_tests() ->
     [
      peercert,
      peercert_with_client_cert,
+     select_best_cert,
+     select_sha1_cert,
      connection_information,
      secret_connection_info,
      keylog_connection_info,
@@ -292,7 +314,11 @@ gen_api_tests() ->
      invalid_options,
      cb_info,
      log_alert,
-     getstat
+     getstat,
+     warn_verify_none,
+     suppress_warn_verify_none,
+     check_random_nonce,
+     cipher_listing
     ].
 
 handshake_paus_tests() ->
@@ -405,6 +431,27 @@ init_per_testcase(conf_signature_algs, Config) ->
         sha ->
             {skip, "Tests needs certs with sha256"}
     end;
+init_per_testcase(check_random_nonce, Config) ->
+    ssl_test_lib:ct_log_supported_protocol_versions(Config),
+    ct:timetrap({seconds, 20}),
+    Config;
+init_per_testcase(select_best_cert, Config) ->
+    ct:timetrap({seconds, 10}),
+    Version = ssl_test_lib:protocol_version(Config),
+    %% We need to make sure TLS-1.3 can be supported as
+    %% want to generate a TLS-1.3 specific certificate that will not
+    %% be chosen
+    case Version of
+        'tlsv1.2' ->
+              case ssl_test_lib:sufficient_crypto_support('tlsv1.3') of
+                  true ->
+                      Config;
+                  false ->
+                      {skip, "Crypto does not support EDDSA"}
+              end;
+        _ ->
+            Config
+    end;
 init_per_testcase(_TestCase, Config) ->
     ssl_test_lib:ct_log_supported_protocol_versions(Config),
     ct:timetrap({seconds, 10}),
@@ -486,6 +533,41 @@ peercert_with_client_cert(Config) when is_list(Config) ->
     ssl_test_lib:close(Server),
     ssl_test_lib:close(Client).
 
+%%--------------------------------------------------------------------
+select_best_cert() ->
+    [{doc,"Basic test of the certs_keys option."}].
+
+select_best_cert(Config) when is_list(Config) ->
+    Version = ssl_test_lib:protocol_version(Config),
+    Conf = test_config(Version, Config),
+    lists:foreach(
+      fun({#{server_config := SConfig,
+             client_config := CConfig},
+           {client_peer, CExpected},
+           {server_peer, SExpected}}) ->
+              selected_peer(CExpected, SExpected,
+                            ssl_test_lib:ssl_options(CConfig, Config),
+                            ssl_test_lib:ssl_options(SConfig, Config),
+                            Conf)
+      end, Conf).
+
+
+
+%%--------------------------------------------------------------------
+select_sha1_cert() ->
+    [{doc,"Use cert signed with rsa and sha1"}].
+
+select_sha1_cert(Config) when is_list(Config) ->
+    Version = ssl_test_lib:protocol_version(Config),
+    TestConf = public_key:pkix_test_data(#{server_chain => #{root => [{digest, sha},{key, ssl_test_lib:hardcode_rsa_key(1)}],
+                                                             intermediates => [[{digest, sha}, {key, ssl_test_lib:hardcode_rsa_key(2)}]],
+                                                             peer =>  [{digest, sha}, {key, ssl_test_lib:hardcode_rsa_key(3)}]
+                                                            },
+                                           client_chain => #{root => [{digest, sha},{key, ssl_test_lib:hardcode_rsa_key(3)}],
+                                                             intermediates => [[{digest, sha},{key, ssl_test_lib:hardcode_rsa_key(2)}]],
+                                                             peer => [{digest, sha}, {key, ssl_test_lib:hardcode_rsa_key(1)}]}}),
+    test_sha1_cert_conf(Version, TestConf, Config).
+    
 %%--------------------------------------------------------------------
 connection_information() ->
     [{doc,"Test the API function ssl:connection_information/1"}].
@@ -974,6 +1056,44 @@ versions(Config) when is_list(Config) ->
     ct:log("~p~n", [Versions]).
 
 %%--------------------------------------------------------------------
+
+versions_option_based_on_sni() ->
+    [{doc,"Test that SNI versions option is selected over default versions"}].
+
+versions_option_based_on_sni(Config) when is_list(Config) ->
+    ClientOpts = ssl_test_lib:ssl_options(client_rsa_opts, Config),
+    ServerOpts = ssl_test_lib:ssl_options(server_rsa_opts, Config),
+    TestVersion = ssl_test_lib:protocol_version(Config),
+    {Version, Versions} = test_versions_for_option_based_on_sni(TestVersion),
+    {ClientNode, ServerNode, Hostname} = ssl_test_lib:run_where(Config),
+
+    SNI = net_adm:localhost(),
+    Fun = fun(ServerName) ->
+              case ServerName of
+                  SNI ->
+                      [{versions, [Version]} | ServerOpts];
+                  _ ->
+                      ServerOpts
+              end
+          end,
+
+    Server = ssl_test_lib:start_server([{node, ServerNode}, {port, 0},
+					{from, self()},
+					{mfa, {?MODULE, protocol_version_check, [Version]}},
+					{options, [{sni_fun, Fun},
+                                                   {versions, Versions} | ServerOpts]}]),
+    Port = ssl_test_lib:inet_port(Server),
+    Client = ssl_test_lib:start_client([{node, ClientNode}, {port, Port},
+					{host, Hostname},
+					{from, self()},
+					{mfa, {ssl_test_lib, no_result, []}},
+					{options, [{server_name_indication, SNI}, {versions, Versions} | ClientOpts]}]),
+
+    ssl_test_lib:check_result(Server, ok),
+    ssl_test_lib:close(Server),
+    ssl_test_lib:close(Client).
+
+%%--------------------------------------------------------------------
 %% Test case adapted from gen_tcp_misc_SUITE.
 active_n() ->
     [{doc,"Test {active,N} option"}].
@@ -1459,7 +1579,7 @@ controller_dies(Config) when is_list(Config) ->
 	    Client3 ! die_nice 
     end,
 
-    ct:log("Wating on exit ~p~n",[Client3]),
+    ct:log("Waiting on exit ~p~n",[Client3]),
     receive {'EXIT', Client3, normal} -> ok end,
     
     receive   %% Client3 is dead but that doesn't matter, socket should not be closed.
@@ -1772,7 +1892,36 @@ der_input(Config) when is_list(Config) ->
     ssl_test_lib:close(Server),
     ssl_test_lib:close(Client),
     %% Using only DER input should not increase file indexed DB 
-    Size = ets:info(CADb, size).
+    Size = ets:info(CADb, size),
+
+    ServerOpts1 = [{verify, verify_peer}, {fail_if_no_peer_cert, true},
+                   {dh, DHParams},
+                   {cert, ServerCert}, {key, ServerKey},
+                   {cacerts, [ #cert{der=Der, otp=public_key:pkix_decode_cert(Der, otp)}
+                               || Der <- ServerCaCerts]}],
+    ClientOpts1 = [{verify, verify_peer}, {fail_if_no_peer_cert, true},
+                   {dh, DHParams},
+                   {cert, ClientCert}, {key, ClientKey},
+                   {cacerts, [ #cert{der=Der, otp=public_key:pkix_decode_cert(Der, otp)}
+                               || Der <- ClientCaCerts]}],
+    Server1 = ssl_test_lib:start_server([{node, ServerNode}, {port, 0},
+                                         {from, self()},
+                                         {mfa, {ssl_test_lib, send_recv_result, []}},
+                                         {options, [{active, false} | ServerOpts1]}]),
+    Port1 = ssl_test_lib:inet_port(Server1),
+    Client1 = ssl_test_lib:start_client([{node, ClientNode}, {port, Port1},
+                                         {host, Hostname},
+                                         {from, self()},
+                                         {mfa, {ssl_test_lib, send_recv_result, []}},
+                                         {options, [{active, false} | ClientOpts1]}]),
+
+    ssl_test_lib:check_result(Server1, ok, Client1, ok),
+    ssl_test_lib:close(Server1),
+    ssl_test_lib:close(Client1),
+    %% Using only DER input should not increase file indexed DB 
+    Size = ets:info(CADb, size),
+
+    ok.
 
 %%--------------------------------------------------------------------
 invalid_certfile() ->
@@ -2485,12 +2634,144 @@ cookie(Config) when is_list(Config) ->
     cookie_extension(Config, true),
     cookie_extension(Config, false).
 
+warn_verify_none() ->
+    [{doc, "Test that verify_none default generates warning."}].
+warn_verify_none(Config) when is_list(Config)->
+    ok = logger:add_handler(?MODULE,?MODULE,#{config=>self()}),
+    ClientOpts = ssl_test_lib:ssl_options(client_rsa_opts, Config),
+    ServerOpts = ssl_test_lib:ssl_options(server_rsa_opts, Config),
+
+    {ClientNode, ServerNode, Hostname} = ssl_test_lib:run_where(Config),
+
+    Server = ssl_test_lib:start_server([{node, ServerNode}, {port, 0},
+					{from, self()},
+                                        {options, ServerOpts},
+                                        {mfa, {ssl_test_lib, no_result, []}}]),
+    Port = ssl_test_lib:inet_port(Server),
+    Client = ssl_test_lib:start_client([{node, ClientNode}, {port, Port},
+                                        {from, self()},
+                                        {host, Hostname},
+	                                {options, ClientOpts},
+					{mfa, {ssl_test_lib, no_result, []}}]),
+    receive
+        warning_generated ->
+            ok = logger:remove_handler(?MODULE)
+    after 500 ->
+            ok = logger:remove_handler(?MODULE),
+            ct:fail(no_warning)
+    end,
+    ssl_test_lib:close(Client),
+    ssl_test_lib:close(Server).
+
+suppress_warn_verify_none() ->
+    [{doc, "Test that explicit verify_none suppresses warning."}].
+suppress_warn_verify_none(Config) when is_list(Config)->
+    ok = logger:add_handler(?MODULE,?MODULE,#{config=>self()}),
+
+    ClientOpts = ssl_test_lib:ssl_options(client_rsa_opts, Config),
+    ServerOpts = ssl_test_lib:ssl_options(server_rsa_opts, Config),
+
+    {ClientNode, ServerNode, Hostname} = ssl_test_lib:run_where(Config),
+
+    Server = ssl_test_lib:start_server([{node, ServerNode}, {port, 0},
+                                        {from, self()},
+                                        {options, ServerOpts},
+					    {mfa, {ssl_test_lib, no_result, []}}]),
+    Port = ssl_test_lib:inet_port(Server),
+    Client = ssl_test_lib:start_client([{node, ClientNode}, {port, Port},
+                                        {from, self()},
+				        {host, Hostname},
+				        {options, [{verify, verify_none} | ClientOpts]},
+			                {mfa, {ssl_test_lib, no_result, []}}]),
+     receive
+         warning_generated ->
+	     ok = logger:remove_handler(?MODULE),
+             ct:fail(warning)
+     after 500 ->
+	     ok = logger:remove_handler(?MODULE)
+     end,
+    ssl_test_lib:close(Client),
+    ssl_test_lib:close(Server).
+
+%%--------------------------------------------------------------------
+check_random_nonce() ->
+    [{doc,"Test random nonce - expecting 32B random for TLS1.3 and 4B UTC "
+      "epoch with 28B random for older version"}].
+check_random_nonce(Config) when is_list(Config) ->
+    ClientOpts = ssl_test_lib:ssl_options(client_rsa_opts, Config),
+    ServerOpts = ssl_test_lib:ssl_options(server_rsa_opts, Config),
+    {ClientNode, ServerNode, Hostname} = ssl_test_lib:run_where(Config),
+    N = 10,
+    F = fun (Id) -> establish_connection(Id,ServerNode, ServerOpts,
+                                         ClientNode, ClientOpts,
+                                         Hostname)
+        end,
+    ConnectionPairs = [F(Id) || Id <- lists:seq(1, N)],
+    Randoms = lists:flatten([ssl_test_lib:get_result([Server, Client]) ||
+                                {Server, Client} <- ConnectionPairs]),
+    Deltas = [abs(FourBytes - SecsSince) ||
+                 {_FromPid,
+                  {_Id, {_, <<FourBytes:32, _/binary>>}, SecsSince}} <- Randoms],
+    MeanDelta = lists:sum(Deltas) div N,
+    case ?config(version, Config) of
+        'tlsv1.3' ->
+            %% 4B "random" expected since TLS1.3
+            RndThreshold   = 10000,
+            true = MeanDelta > RndThreshold;
+        _ ->
+            %% 4 epoch based bytes expected pre TLS1.3
+            EpochThreshold = 10,
+            true = MeanDelta < EpochThreshold
+    end,
+    [begin
+         ssl_test_lib:close(Server),
+         ssl_test_lib:close(Client)
+     end || {Server, Client} <- ConnectionPairs].
+%%--------------------------------------------------------------------
+cipher_listing() ->
+    [{doc, "Check that exclusive cipher for possible supported version adds up to all cipher " 
+      "for the max version. Note that TLS-1.3 will contain two distinct sets of ciphers "
+      "one for TLS-1.3 and one pre TLS-1.3"}].
+cipher_listing(Config) when is_list(Config) ->
+    Version = ssl_test_lib:protocol_version(Config, tuple),
+    length_exclusive(Version) == length_all(Version).
+
+%%--------------------------------------------------------------------
+
+establish_connection(Id, ServerNode, ServerOpts, ClientNode, ClientOpts, Hostname) ->
+    Server =
+        ssl_test_lib:start_server([{node, ServerNode}, {port, 0},
+                                   {from, self()},
+                                   {mfa, {?MODULE, get_connection_information,
+                                          [Id, server_random]}},
+                                   {options, [{verify, verify_peer} | ServerOpts]}]),
+
+    ListenPort = ssl_test_lib:inet_port(Server),
+    Client =
+        ssl_test_lib:start_client([{node, ClientNode}, {port, ListenPort},
+                                   {host, Hostname},
+                                   {from, self()},
+                                   {mfa, {?MODULE, get_connection_information,
+                                          [Id, client_random]}},
+                                   {options,  [{verify, verify_peer} |ClientOpts]}]),
+
+    ct:log("Testcase ~p, Client ~p  Server ~p ~n",
+           [self(), Client, Server]),
+    {Server, Client}.
+
 %%% Checker functions
+get_connection_information(Socket, ConnectionId, InfoType) ->
+    {ok, [ConnectionInfo]} = ssl:connection_information(Socket, [InfoType]),
+    {ConnectionId, ConnectionInfo, secs_since_1970()}.
+secs_since_1970() ->
+    calendar:datetime_to_gregorian_seconds(
+        calendar:universal_time()) - 62167219200.
+
 connection_information_result(Socket) ->
     {ok, Info = [_ | _]} = ssl:connection_information(Socket),
     case  length(Info) > 3 of
 	true -> 
-	    %% Atleast one ssl_option() is set
+	    %% At least one ssl_option() is set
 	    ct:log("Info ~p", [Info]),
 	    ok;
 	false ->
@@ -2909,3 +3190,294 @@ ssl_getstat(Socket) ->
         _  ->
             ok
     end.
+
+test_versions_for_option_based_on_sni('tlsv1.3') ->
+    {'tlsv1.2', ['tlsv1.3', 'tlsv1.2']};
+test_versions_for_option_based_on_sni('tlsv1.2') ->
+    {'tlsv1.1', ['tlsv1.2', 'tlsv1.1']}.
+
+protocol_version_check(Socket, Version) ->
+    case ssl:connection_information(Socket, [protocol]) of
+        {ok, [{protocol, Version}]} ->
+            ok;
+        Other ->
+            ct:fail({expected, Version, got, Other})
+    end.
+
+log(#{msg:={report,_Report}},#{config:=Pid}) ->
+    Pid ! warning_generated;
+log(_,_) ->
+    ok.
+
+length_exclusive({3,_} = Version) ->
+    length(exclusive_default_up_to_version(Version, [])) +
+        length(exclusive_non_default_up_to_version(Version, []));
+length_exclusive({254,_} = Version) ->
+    length(dtls_exclusive_default_up_to_version(Version, [])) +
+        length(dtls_exclusive_non_default_up_to_version(Version, [])).
+
+length_all(Version) ->
+    length(ssl:cipher_suites(all, Version)).
+
+exclusive_default_up_to_version({3, 1} = Version, Acc) ->
+    ssl:cipher_suites(exclusive, Version) ++ Acc;
+exclusive_default_up_to_version({3, Minor} = Version, Acc) when Minor =< 4 ->
+    Suites = ssl:cipher_suites(exclusive, Version),
+    exclusive_default_up_to_version({3, Minor-1}, Suites ++ Acc).
+
+dtls_exclusive_default_up_to_version({254, 255} = Version, Acc) ->
+    ssl:cipher_suites(exclusive, Version) ++ Acc;
+dtls_exclusive_default_up_to_version({254, 253} = Version, Acc) ->
+    Suites = ssl:cipher_suites(exclusive, Version),
+    dtls_exclusive_default_up_to_version({254, 255}, Suites ++ Acc).
+
+exclusive_non_default_up_to_version({3, 1} = Version, Acc) ->
+    exclusive_non_default_version(Version) ++ Acc;
+exclusive_non_default_up_to_version({3, 4}, Acc) ->
+    exclusive_non_default_up_to_version({3, 3}, Acc);
+exclusive_non_default_up_to_version({3, Minor} = Version, Acc) when Minor =< 3 ->
+    Suites = exclusive_non_default_version(Version),
+    exclusive_non_default_up_to_version({3, Minor-1}, Suites ++ Acc).
+
+dtls_exclusive_non_default_up_to_version({254, 255} = Version, Acc) ->
+    dtls_exclusive_non_default_version(Version) ++ Acc;
+dtls_exclusive_non_default_up_to_version({254, 253} = Version, Acc) ->
+    Suites = dtls_exclusive_non_default_version(Version),
+    dtls_exclusive_non_default_up_to_version({254, 255}, Suites ++ Acc).
+
+exclusive_non_default_version({_, Minor}) ->
+    tls_v1:psk_exclusive(Minor) ++
+        tls_v1:srp_exclusive(Minor) ++
+        tls_v1:rsa_exclusive(Minor) ++
+        tls_v1:des_exclusive(Minor) ++
+        tls_v1:rc4_exclusive(Minor).
+
+dtls_exclusive_non_default_version(DTLSVersion) ->        
+    {_,Minor} = ssl:tls_version(DTLSVersion),
+    tls_v1:psk_exclusive(Minor) ++
+        tls_v1:srp_exclusive(Minor) ++
+        tls_v1:rsa_exclusive(Minor) ++ 
+        tls_v1:des_exclusive(Minor).
+
+selected_peer(ExpectedClient,
+              ExpectedServer, ClientOpts, ServerOpts, Config) ->
+    {ClientNode, ServerNode, Hostname} = ssl_test_lib:run_where(Config),
+
+    Server = ssl_test_lib:start_server([{node, ServerNode}, {port, 0},
+					{from, self()},
+                                        {mfa, {?MODULE, check_peercert, [ExpectedServer]}},
+                                        {options, ssl_test_lib:ssl_options(ServerOpts, Config)}]),
+    Port = ssl_test_lib:inet_port(Server),
+
+    Client  = ssl_test_lib:start_client([{node, ClientNode}, {port, Port},
+                                         {host, Hostname},
+                                         {from, self()},
+                                         {mfa, {?MODULE, check_peercert, [ExpectedClient]}},
+                                         {options,  ssl_test_lib:ssl_options(ClientOpts, Config)}
+					]),
+
+    ssl_test_lib:check_result(Server, ok, Client, ok),
+    %% Make sure to start next test fresh
+    ssl:stop(),
+    ssl:start().
+
+test_config('tlsv1.3', _) ->
+    #{server_config := SEDDSAOpts,
+      client_config := CEDDSAOpts} = eddsa_cert_chains(),
+    #{server_config := SECDSAOpts,
+      client_config := CECDSAOpts } = ecdsa_cert_chains(),
+
+    {SEDDSACert, SEDDSAKey, SEDDSACACerts} = get_single_options(cert, key, cacerts, SEDDSAOpts),
+    {CEDDSACert, CEDDSAKey, CEDDSACACerts} = get_single_options(cert, key, cacerts, CEDDSAOpts),
+
+    {SECDSACert, SECDSAKey, SECDSACACerts} = get_single_options(cert, key, cacerts, SECDSAOpts),
+    {CECDSACert, CECDSAKey, CECDSACACerts} = get_single_options(cert, key, cacerts, CECDSAOpts),
+
+    ServerCertKeys = [#{cert => SECDSACert, key => SECDSAKey},
+                      #{cert => SEDDSACert, key => SEDDSAKey}],
+
+    ClientCertKeys = [#{cert => CECDSACert, key => CECDSAKey},
+                      #{cert => CEDDSACert, key => CEDDSAKey}],
+
+    [{#{server_config => [{certs_keys,ServerCertKeys},
+                          {verify, verify_peer},  {versions, ['tlsv1.3', 'tlsv1.2']},
+                          {cacerts, SEDDSACACerts ++ SECDSACACerts}],
+        client_config => [{certs_keys, ClientCertKeys},
+                          {verify, verify_peer}, {versions, ['tlsv1.3', 'tlsv1.2']},
+                          {cacerts, CEDDSACACerts ++ CECDSACACerts}]
+       },
+      {client_peer, SEDDSACert}, {server_peer, CEDDSACert}},
+     {#{server_config => [{certs_keys, ServerCertKeys},
+                          {verify, verify_peer}, {versions, ['tlsv1.2']},
+                          {cacerts, SEDDSACACerts ++ SECDSACACerts}],
+        client_config => [{certs_keys, ClientCertKeys},
+                          {verify, verify_peer},  {versions, ['tlsv1.2']},
+                          {cacerts, CEDDSACACerts ++ CECDSACACerts}]},
+      {client_peer, SECDSACert}, {server_peer, CECDSACert}}
+    ];
+test_config('tlsv1.2', _) ->
+    #{server_config := SRSAOpts,
+      client_config := CRSAOpts} = eddsa_cert_chains(),
+    #{server_config := SDSAOpts,
+      client_config := CDSAOpts} = dsa_cert_chains(),
+
+    {SRSACert, SRSAKey, SRSACACerts} = get_single_options(cert, key, cacerts, SRSAOpts),
+    {CRSACert, CRSAKey, CRSACACerts} = get_single_options(cert, key, cacerts,  CRSAOpts),
+
+    {SDSACert, SDSAKey, SDSACACerts} = get_single_options(cert, key, cacerts, SDSAOpts),
+    {CDSACert, CDSAKey, CDSACACerts} = get_single_options(cert, key, cacerts,  CDSAOpts),
+
+
+    [{#{server_config => [{certs_keys, [#{cert => SDSACert, key => SDSAKey}, #{cert => SRSACert, key => SRSAKey}]},
+                          {verify, verify_peer},  {versions, ['tlsv1.3', 'tlsv1.2']},
+                          {cacerts, SRSACACerts ++ SDSACACerts}],
+        client_config => [{certs_keys, [#{cert => CDSACert, key => CDSAKey}, #{cert => CRSACert, key => CRSAKey}]},
+                          {verify, verify_peer}, {versions, ['tlsv1.3', 'tlsv1.2']},
+                          {cacerts, CRSACACerts ++ CDSACACerts}]
+       }, {client_peer, SRSACert}, {server_peer, CRSACert}},
+     {#{server_config => [{certs_keys, [#{cert => SDSACert, key => SDSAKey}, #{cert => SRSACert, key => SRSAKey}]},
+                          {verify, verify_peer}, {versions, ['tlsv1.2']},
+                          {cacerts, SRSACACerts ++ SDSACACerts}],
+        client_config => [{certs_keys, [#{cert => CDSACert, key => CDSAKey}, #{cert => CRSACert, key => CRSAKey}]},
+                          {verify, verify_peer},  {versions, ['tlsv1.2']},
+                          {cacerts, CRSACACerts ++ CDSACACerts}]
+       }, {client_peer, SDSACert}, {server_peer, CDSACert}}];
+test_config('dtlsv1.2', Config) ->
+    #{server_config := SRSAPSSOpts,
+      client_config := CRSAPSSOpts} = ssl_test_lib:make_rsa_pss_pem(rsa_pss_pss, [], Config, "dtls_pss_pss_conf"),
+    #{server_config := SRSAPSSRSAEOpts,
+      client_config := CRSAPSSRSAEOpts} = ssl_test_lib:make_rsa_pss_pem(rsa_pss_rsae, [], Config, "dtls_pss_rsae_conf"),
+
+    {SRSAPSSCert, SRSAPSSKey, SRSAPSSCACerts} = get_single_options(certfile, keyfile, cacertfile, SRSAPSSOpts),
+    {CRSAPSSCert, CRSAPSSKey, CRSAPSSCACerts} = get_single_options(certfile, keyfile, cacertfile,  CRSAPSSOpts),
+
+    {SRSAPSSRSAECert, SRSAPSSRSAEKey, SRSAPSSRSAECACerts} = get_single_options(certfile, keyfile, cacertfile, SRSAPSSRSAEOpts),
+    {CRSAPSSRSAECert, CRSAPSSRSAEKey, CRSAPSSRSAECACerts} = get_single_options(certfile, keyfile, cacertfile, CRSAPSSRSAEOpts),
+
+    [{#{server_config => [{certs_keys, [#{certfile => SRSAPSSRSAECert, keyfile => SRSAPSSRSAEKey},
+                                        #{certfile => SRSAPSSCert, keyfile => SRSAPSSKey}]},
+                          {verify, verify_peer},
+                          {cacertfile, SRSAPSSCACerts}],
+        client_config => [{certs_keys, [#{certfile => CRSAPSSRSAECert, keyfile => CRSAPSSRSAEKey},
+                                        #{certfile => CRSAPSSCert, keyfile => CRSAPSSKey}]},
+                          {verify, verify_peer},
+                          {cacertfile, CRSAPSSCACerts}]
+       },
+      {client_peer, pem_to_der_cert(SRSAPSSCert)}, {server_peer, pem_to_der_cert(CRSAPSSCert)}},
+     {#{server_config => [{certs_keys, [#{certfile => SRSAPSSRSAECert, keyfile => SRSAPSSRSAEKey},
+                                        #{certfile => SRSAPSSCert, keyfile => SRSAPSSKey}]},
+                          {verify, verify_peer},
+                          {cacertfile, SRSAPSSRSAECACerts}],
+        client_config => [{certs_keys, [#{certfile => CRSAPSSRSAECert, keyfile => CRSAPSSRSAEKey}]},
+                          {verify, verify_peer}, {signature_algs, [rsa_pss_rsae_sha256]},
+                          {cacertfile, CRSAPSSRSAECACerts}]
+       },
+      {client_peer, pem_to_der_cert(SRSAPSSRSAECert)}, {server_peer, pem_to_der_cert(CRSAPSSRSAECert)}}
+    ];
+test_config(_, Config) ->
+    RSAConf1 = ssl_test_lib:make_rsa_cert(Config),
+    SRSA1Opts = proplists:get_value(server_rsa_opts, RSAConf1),
+    CRSA1Opts = proplists:get_value(client_rsa_opts, RSAConf1),
+
+    RSAConf2 = ssl_test_lib:make_rsa_1024_cert(Config),
+    SRSA2Opts = proplists:get_value(server_rsa_1024_opts, RSAConf2),
+    CRSA2Opts = proplists:get_value(client_rsa_1024_opts, RSAConf2),
+
+    {SRSA1Cert, SRSA1Key, _SRSA1CACerts} = get_single_options(certfile, keyfile, cacertfile, SRSA1Opts),
+    {CRSA1Cert, CRSA1Key, _CRSA1CACerts} = get_single_options(certfile, keyfile, cacertfile, CRSA1Opts),
+
+    {SRSA2Cert, SRSA2Key, SRSA2CACerts} = get_single_options(certfile, keyfile, cacertfile, SRSA2Opts),
+    {CRSA2Cert, CRSA2Key, CRSA2CACerts} = get_single_options(certfile, keyfile, cacertfile, CRSA2Opts),
+
+    [{#{server_config => [{certs_keys, [#{certfile => SRSA2Cert, keyfile => SRSA2Key},
+                                        #{certfile => SRSA1Cert, keyfile => SRSA1Key}]},
+                          {verify, verify_peer},
+                          {cacertfile, SRSA2CACerts}],
+        client_config => [{certs_keys, [#{certfile => CRSA2Cert, keyfile  => CRSA2Key},
+                                        #{certfile => CRSA1Cert, keyfile => CRSA1Key}]},
+                          {verify, verify_peer},
+                          {cacertfile, CRSA2CACerts}]
+       }, {client_peer,  pem_to_der_cert(SRSA2Cert)}, {server_peer, pem_to_der_cert(CRSA2Cert)}}].
+
+check_peercert(Socket, Cert) ->
+    case ssl:peercert(Socket) of
+        {ok, Cert} ->
+            ok;
+        {ok, Other} ->
+            {error, {{expected, public_key:pkix_decode_cert(Cert, otp)}, {got, public_key:pkix_decode_cert(Other, otp)}}}
+    end.
+
+
+eddsa_cert_chains() ->
+    public_key:pkix_test_data(#{server_chain => #{root => ssl_test_lib:eddsa_conf(),
+                                                  intermediates => [ssl_test_lib:eddsa_conf()],
+                                                  peer =>  ssl_test_lib:eddsa_conf()},
+                                client_chain => #{root => ssl_test_lib:eddsa_conf(),
+                                                  intermediates => [ssl_test_lib:eddsa_conf()],
+                                                  peer =>  ssl_test_lib:eddsa_conf()}}).
+
+ecdsa_cert_chains() ->
+    public_key:pkix_test_data(#{server_chain => #{root => ssl_test_lib:ecdsa_conf(),
+                                                  intermediates => [ssl_test_lib:ecdsa_conf()],
+                                                  peer =>  ssl_test_lib:ecdsa_conf()},
+                                client_chain => #{root => ssl_test_lib:ecdsa_conf(),
+                                                  intermediates => [ssl_test_lib:ecdsa_conf()],
+                                                  peer =>  ssl_test_lib:ecdsa_conf()}}).
+dsa_cert_chains() ->
+    public_key:pkix_test_data(#{server_chain => #{root => [{key, ssl_test_lib:hardcode_dsa_key(1)}],
+                                                  intermediates => [[{key, ssl_test_lib:hardcode_dsa_key(2)}]],
+                                                  peer =>  [{key, ssl_test_lib:hardcode_dsa_key(3)}]
+                                                 },
+                                client_chain => #{root => [{key, ssl_test_lib:hardcode_dsa_key(3)}],
+                                                  intermediates => [[{key, ssl_test_lib:hardcode_dsa_key(2)}]],
+                                                  peer => [{key, ssl_test_lib:hardcode_dsa_key(1)}]}}).
+
+get_single_options(CertOptName, KeyOptName, CaOptName, Opts) ->
+    CertOpt = proplists:get_value(CertOptName, Opts),
+    KeyOpt = proplists:get_value(KeyOptName, Opts),
+    CaOpt = proplists:get_value(CaOptName, Opts),
+    {CertOpt, KeyOpt, CaOpt}.
+
+pem_to_der_cert(Pem) ->
+    [{'Certificate', Der, _}] = ssl_test_lib:pem_to_der(Pem),
+    Der.
+
+test_sha1_cert_conf('tlsv1.3', #{client_config := ClientOpts, server_config := ServerOpts}, Config) ->
+    ssl_test_lib:basic_test([{verify, verify_peer} | ClientOpts], ServerOpts, Config),
+    SigAlgs = [%% ECDSA
+               ecdsa_secp521r1_sha512,
+               ecdsa_secp384r1_sha384,
+               ecdsa_secp256r1_sha256,
+               %% RSASSA-PSS
+               rsa_pss_pss_sha512,
+               rsa_pss_pss_sha384,
+               rsa_pss_pss_sha256,
+               rsa_pss_rsae_sha512,
+               rsa_pss_rsae_sha384,
+               rsa_pss_rsae_sha256,
+               %% EDDSA
+               eddsa_ed25519,
+               eddsa_ed448
+              ],
+    ssl_test_lib:basic_alert([{verify, verify_peer}, {signature_algs,  SigAlgs} | ClientOpts],
+                             [{signature_algs,  SigAlgs ++ [rsa_pkcs1_sha1]} | ServerOpts], Config, handshake_failure);
+
+test_sha1_cert_conf('tlsv1.2', #{client_config := ClientOpts, server_config := ServerOpts}, Config) ->
+    SigAlgs =  [%% SHA2
+                {sha512, ecdsa},
+                {sha512, rsa},
+                {sha384, ecdsa},
+                {sha384, rsa},
+                {sha256, ecdsa},
+                {sha256, rsa},
+                {sha224, ecdsa},
+                {sha224, rsa},
+                %% SHA
+                {sha, ecdsa},
+                {sha, rsa},
+                {sha, dsa}],
+    ssl_test_lib:basic_test( [{verify, verify_peer}, {signature_algs,  SigAlgs} | ClientOpts],
+                             [{signature_algs,  SigAlgs} | ServerOpts], Config);
+
+test_sha1_cert_conf(_, #{client_config := ClientOpts, server_config := ServerOpts}, Config) ->
+    ssl_test_lib:basic_test([{verify, verify_peer} | ClientOpts], ServerOpts, Config).

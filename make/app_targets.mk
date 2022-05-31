@@ -1,7 +1,7 @@
 # 
 # %CopyrightBegin%
 # 
-# Copyright Ericsson AB 1997-2019. All Rights Reserved.
+# Copyright Ericsson AB 1997-2021. All Rights Reserved.
 # 
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -23,7 +23,8 @@ APPLICATION ?= $(basename $(notdir $(PWD)))
 .PHONY: test info gclean dialyzer dialyzer_plt dclean
 
 test:
-	$(ERL_TOP)/make/test_target_script.sh $(ERL_TOP)
+	TEST_NEEDS_RELEASE=$(TEST_NEEDS_RELEASE) TYPE=$(TYPE) \
+	  $(ERL_TOP)/make/test_target_script.sh $(ERL_TOP)
 
 info:
 	@echo "$(APPLICATION)_VSN:   $(VSN)"

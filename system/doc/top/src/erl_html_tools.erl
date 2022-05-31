@@ -2,7 +2,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2009-2020. All Rights Reserved.
+%% Copyright Ericsson AB 2009-2021. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -261,7 +261,7 @@ find_application_infos([{App, Vsn, AppPath, IndexURL} | Paths]) ->
 		case lists:keysearch("group", 1, Db) of
 		    {value, {_, G0}} ->
 			% This value may be in two parts, 
-		        % tag and desciption
+		        % tag and description
 			case string:str(G0, " ") of
 			    0 ->
 				{list_to_atom(G0), ""};

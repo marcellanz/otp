@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2002-2018. All Rights Reserved.
+%% Copyright Ericsson AB 2002-2022. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -1255,7 +1255,7 @@ handle_cast({Pid, close}, State) ->
     error_logger:info_report(Report),
     {noreply, State};
 
-%% Catch all -  This can oly happen if the application programmer writes
+%% Catch all -  This can only happen if the application programmer writes
 %% really bad code that violates the API.
 handle_cast(Msg, State) ->
   {stop, {'API_violation_connection_closed', Msg}, State}.
@@ -1615,7 +1615,6 @@ handle_ctrl_result({pos_compl, _}, #state{tls_upgrading_data_connection = {true,
     {noreply, State#state{client = undefined,
                           caller = undefined,
                           tls_upgrading_data_connection = false}};
-
 handle_ctrl_result({pos_compl, _}, #state{caller = open, client = From}
                    = State) ->
     gen_server:reply(From, {ok, self()}),
@@ -1952,7 +1951,10 @@ handle_ctrl_result({pos_prel, _}, #state{caller = {transfer_data, Bin}}
 %% Default
 handle_ctrl_result({Status, _Lines}, #state{client = From} = State)
   when From =/= undefined ->
-    ctrl_result_response(Status, State, {error, Status}).
+    ctrl_result_response(Status, State, {error, Status});
+handle_ctrl_result(CtrlMsg, #state{caller = undefined} = State) ->
+    logger:log(info, #{protocol => ftp, unexpected_msg => CtrlMsg}),
+    {noreply, State}.
 
 %%--------------------------------------------------------------------------
 %% Help functions to handle_ctrl_result
@@ -2258,7 +2260,7 @@ activate_connection(API, CloseTag, Socket0) ->
     case API:setopts(Socket, [{active, once}]) of
         ok ->
             ok;
-        {error, _} -> %% inet can retrun einval instead of closed
+        {error, _} -> %% inet can return einval instead of closed
             self() ! {CloseTag, Socket}
     end.
 

@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2004-2019. All Rights Reserved.
+%% Copyright Ericsson AB 2004-2021. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -351,8 +351,8 @@ entirely() ->
     [receive _ -> Voice end || banking <- printer].
 
 printer() ->
-    {[Indoor] = [] = associates},
-    [ireland || Indoor <- Indoor].
+    {[_Indoor] = [] = associates},
+    [ireland || _Indoor <- _Indoor].
 
 tench() ->
     E = begin
@@ -364,7 +364,7 @@ tench() ->
 perch(X) ->
     begin
 	put(perch, get(perch)+1),
-	[A] = [] = {spine,X}
+	[_A] = [] = {spine,X}
     end.
 
 salmon() ->
@@ -497,7 +497,7 @@ untuplify_2(V1, V2) ->
 shortcut_boolean(Config) when is_list(Config) ->
     false = shortcut_boolean_1([0]),
     true = shortcut_boolean_1({42}),
-    maybe = shortcut_boolean_1(self()),
+    'maybe' = shortcut_boolean_1(self()),
     {'EXIT',_} = (catch shortcut_boolean_1([a,b])),
     {'EXIT',_} = (catch shortcut_boolean_1({a,b})),
     ok.
@@ -511,7 +511,7 @@ shortcut_boolean_1(X) ->
 			end,
 		    not V;
 		false ->
-		    maybe
+		    'maybe'
 	    end,
     id(Outer).
 

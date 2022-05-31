@@ -1,7 +1,7 @@
 #
 # %CopyrightBegin%
 #
-# Copyright Ericsson AB 1999-2020. All Rights Reserved.
+# Copyright Ericsson AB 1999-2022. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -56,6 +56,7 @@ MODULES = \
 	openssl_sni_SUITE\
 	ssl_mfl_SUITE\
 	openssl_mfl_SUITE\
+	ssl_reject_SUITE\
         ssl_renegotiate_SUITE\
 	openssl_renegotiate_SUITE\
 	openssl_reject_SUITE\
@@ -95,12 +96,14 @@ MODULES = \
         x509_test \
 	inet_crypto_dist \
 	openssl_ocsp_SUITE \
-	tls_server_session_ticket_SUITE
+	tls_server_session_ticket_SUITE \
+	tls_client_ticket_store_SUITE
 
 
 ERL_FILES = $(MODULES:%=%.erl)
 
 HRL_FILES = \
+	ssl_test_lib.hrl\
 	ssl_dist_test_lib.hrl
 
 HRL_FILES_SRC = \
@@ -146,7 +149,7 @@ ERL_COMPILE_FLAGS += $(INCLUDES)
 # Targets
 # ----------------------------------------------------
 
-tests debug opt: $(BUILDTARGET)
+tests $(TYPES): $(BUILDTARGET)
 
 targets: $(TARGET_FILES)
 
@@ -175,7 +178,7 @@ release_spec: opt
 release_tests_spec: opt
 	$(INSTALL_DIR) "$(RELSYSDIR)"
 	$(INSTALL_DATA)  $(ERL_FILES) $(HRL_FILES) $(HRL_FILES_NEEDED_IN_TEST) $(COVER_FILE) "$(RELSYSDIR)"
-	$(INSTALL_DATA) ssl.spec ssl_bench.spec ssl.cover "$(RELSYSDIR)"
+	$(INSTALL_DATA) ssl.spec ssl_bench.spec ssl_gh.spec ssl.cover "$(RELSYSDIR)"
 	chmod -R u+w "$(RELSYSDIR)"
 	@tar cf - *_SUITE_data property_test | (cd "$(RELSYSDIR)"; tar xf -)
 

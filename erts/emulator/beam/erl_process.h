@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  *
- * Copyright Ericsson AB 1996-2020. All Rights Reserved.
+ * Copyright Ericsson AB 1996-2022. All Rights Reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -106,6 +106,7 @@ extern Uint ERTS_WRITE_UNLIKELY(erts_no_total_schedulers);
 extern Uint ERTS_WRITE_UNLIKELY(erts_no_dirty_cpu_schedulers);
 extern Uint ERTS_WRITE_UNLIKELY(erts_no_dirty_io_schedulers);
 extern Uint ERTS_WRITE_UNLIKELY(erts_no_run_queues);
+extern int ERTS_WRITE_UNLIKELY(erts_no_aux_work_threads);
 extern int erts_sched_thread_suggested_stack_size;
 extern int erts_dcpu_sched_thread_suggested_stack_size;
 extern int erts_dio_sched_thread_suggested_stack_size;
@@ -282,7 +283,7 @@ typedef enum {
 
 /*
  * Keep ERTS_SSI_AUX_WORK flags ordered in expected frequency
- * order relative eachother. Most frequent at lowest at lowest
+ * order relative each other. Most frequent at lowest at lowest
  * index.
  *
  * ERTS_SSI_AUX_WORK_DEBUG_WAIT_COMPLETED_IX *need* to be
@@ -558,8 +559,9 @@ typedef struct {
     erts_aint32_t aux_work;
 } ErtsDelayedAuxWorkWakeupJob;
 
-typedef struct {
-    int sched_id;
+typedef struct ErtsAuxWorkData_ {
+    int aux_work_tid;
+    ErtsThrAllocData alloc_data;
     ErtsSchedulerData *esdp;
     ErtsSchedulerSleepInfo *ssi;
     ErtsThrPrgrVal current_thr_prgr;
@@ -607,7 +609,8 @@ typedef struct {
 
 #define ERTS_SCHED_AUX_YIELD_DATA(ESDP, NAME) \
     (&(ESDP)->aux_work_data.yield.NAME)
-void erts_notify_new_aux_yield_work(ErtsSchedulerData *esdp);
+void erts_more_yield_aux_work(ErtsAuxWorkData *);
+ErtsAuxWorkData *erts_get_aux_work_data(void);
 
 typedef enum {
     ERTS_DIRTY_CPU_SCHEDULER,
@@ -661,11 +664,11 @@ typedef struct ErtsSchedulerRegisters_ {
     ErtsCodePtr start_time_i;
     UWord start_time;
 
-#if !defined(NATIVE_ERLANG_STACK) && defined(JIT_HARD_DEBUG)
+#if (!defined(NATIVE_ERLANG_STACK) || defined(__aarch64__)) && defined(JIT_HARD_DEBUG)
     /* Holds the initial thread stack pointer. Used to ensure that everything
      * that is pushed to the stack is also popped. */
     UWord *initial_sp;
-#elif defined(NATIVE_ERLANG_STACK) && defined(DEBUG)
+#elif defined(NATIVE_ERLANG_STACK) && defined(DEBUG) && !defined(__aarch64__)
     /* Raw pointers to the start and end of the stack. Used to test bounds
      * without clobbering any registers. */
     UWord *runtime_stack_start;
@@ -706,8 +709,6 @@ struct ErtsSchedulerData_ {
     Uint32 thr_id;
     Uint64 unique;
     Uint64 ref;
-
-    ErtsSchedAllocData alloc_data;
 
     struct {
 	Uint64 out;
@@ -955,6 +956,21 @@ typedef struct ErtsProcSysTaskQs_ ErtsProcSysTaskQs;
     (ASSERT((p)->htop <= (p)->stop),                                           \
      MAX((p)->htop, (p)->stop - S_REDZONE))
 
+#ifdef ERLANG_FRAME_POINTERS
+/* The current frame pointer on the Erlang stack. */
+#  define FRAME_POINTER(p)  (p)->frame_pointer
+#else
+/* We define this to a trapping lvalue when frame pointers are unsupported to
+ * provoke crashes when used without checking `erts_frame_layout`. The checks
+ * will always be optimized out because the variable is hardcoded to
+ *  `ERTS_FRAME_LAYOUT_RA`. */
+#  define FRAME_POINTER(p)  (((Eterm ** volatile)0xbadf00d)[0])
+
+#  ifndef erts_frame_layout
+#    error "erts_frame_layout has not been hardcoded to ERTS_FRAME_LAYOUT_RA"
+#  endif
+#endif
+
 #  define HEAP_END(p)       (p)->hend
 #  define HEAP_SIZE(p)      (p)->heap_sz
 #  define STACK_START(p)    (p)->hend
@@ -994,8 +1010,13 @@ struct process {
      * shorter instruction can be used to access them.
      */
 
-    Eterm* htop;		/* Heap top */
-    Eterm* stop;		/* Stack top */
+    Eterm *htop;                /* Heap top */
+    Eterm *stop;                /* Stack top */
+
+#ifdef ERLANG_FRAME_POINTERS
+    Eterm *frame_pointer;       /* Frame pointer */
+#endif
+
     Sint fcalls;		/* Number of reductions left to execute.
 				 * Only valid for the current process.
 				 */
@@ -1044,7 +1065,7 @@ struct process {
     Eterm seq_trace_token;	/* Sequential trace token (tuple size 5 see below) */
 
 #ifdef USE_VM_PROBES
-    Eterm dt_utag;              /* Place to store the dynamc trace user tag */
+    Eterm dt_utag;              /* Place to store the dynamic trace user tag */
     Uint dt_utag_flags;         /* flag field for the dt_utag */
 #endif
     union {
@@ -1081,6 +1102,7 @@ struct process {
     Uint16 gen_gcs;		/* Number of (minor) generational GCs. */
     Uint16 max_gen_gcs;		/* Max minor gen GCs before fullsweep. */
     ErlOffHeap off_heap;	/* Off-heap data updated by copy_struct(). */
+    struct erl_off_heap_header* wrt_bins; /* Writable binaries */
     ErlHeapFragment* mbuf;	/* Pointer to heap fragment list */
     ErlHeapFragment* live_hf_end;
     ErtsMessage *msg_frag;	/* Pointer to message fragment list */
@@ -1096,8 +1118,9 @@ struct process {
 
     erts_atomic32_t state;  /* Process state flags (see ERTS_PSFLG_*) */
     erts_atomic32_t dirty_state; /* Process dirty state flags (see ERTS_PDSFLG_*) */
-
+    Uint sig_inq_contention_counter;
     ErtsSignalInQueue sig_inq;
+    erts_atomic_t sig_inq_buffers;
     ErlTraceMessageQueue *trace_msg_q;
     erts_proc_lock_t lock;
     ErtsSchedulerData *scheduler_data;
@@ -1231,7 +1254,7 @@ void erts_check_for_holes(Process* p);
 #define ERTS_PSFLG_IN_RUNQ		ERTS_PSFLG_BIT(8)
 /* RUNNING - Executing in process_main() */
 #define ERTS_PSFLG_RUNNING		ERTS_PSFLG_BIT(9)
-/* SUSPENDED - Process suspended; supress active but
+/* SUSPENDED - Process suspended; suppress active but
    not active-sys nor dirty-active-sys */
 #define ERTS_PSFLG_SUSPENDED		ERTS_PSFLG_BIT(10)
 /* GC - gc */
@@ -1434,6 +1457,7 @@ typedef struct {
     Eterm group_leader;
     Eterm mfa;
     DistEntry *dist_entry;
+    Uint32 conn_id;
     ErtsMonLnkDist *mld;        /* copied from dist_entry->mld */
     ErtsDistExternal *edep;
     ErlHeapFragment *ede_hfrag;
@@ -1540,7 +1564,8 @@ extern int erts_system_profile_ts_type;
 #define F_DIRTY_MINOR_GC     (1 << 20) /* Dirty minor GC scheduled */
 #define F_HIBERNATED         (1 << 21) /* Hibernated */
 #define F_TRAP_EXIT          (1 << 22) /* Trapping exit */
-#define F_DBG_FORCED_TRAP    (1 << 23) /* DEBUG: Last BIF call was a forced trap */
+#define F_FRAGMENTED_SEND    (1 << 23) /* Process is doing a distributed fragmented send */
+#define F_DBG_FORCED_TRAP    (1 << 24) /* DEBUG: Last BIF call was a forced trap */
 
 /* Signal queue flags */
 #define FS_OFF_HEAP_MSGQ       (1 << 0) /* Off heap msg queue */
@@ -1721,9 +1746,9 @@ Uint64 erts_get_proc_interval(void);
 Uint64 erts_ensure_later_proc_interval(Uint64);
 Uint64 erts_step_proc_interval(void);
 
-ErtsProcList *erts_proclist_create(Process *);
-ErtsProcList *erts_proclist_copy(ErtsProcList *);
 void erts_proclist_destroy(ErtsProcList *);
+ErtsProcList *erts_proclist_create(Process *) ERTS_ATTR_MALLOC_D(erts_proclist_destroy,1);
+ErtsProcList *erts_proclist_copy(ErtsProcList *);
 void erts_proclist_dump(fmtfn_t to, void *to_arg, ErtsProcList*);
 
 ERTS_GLB_INLINE int erts_proclist_same(ErtsProcList *, Process *);
@@ -1938,7 +1963,8 @@ void erts_schedule_misc_aux_work(int sched_id,
 				 void (*func)(void *),
 				 void *arg);
 void erts_schedule_multi_misc_aux_work(int ignore_self,
-				       int max_sched,
+                                       int min_tid,
+				       int max_tid,
 				       void (*func)(void *),
 				       void *arg);
 erts_aint32_t erts_set_aux_work_timeout(int, erts_aint32_t, int);
@@ -2490,7 +2516,7 @@ erts_init_runq_proc(Process *p, ErtsRunQueue *rq, int bnd)
  * @param bndp[in,out]  Pointer to integer. On input non-zero
  *                      value causes the process to be bound to
  *                      the run-queue. On output, indicating
- *                      wether process previously was bound or
+ *                      whether process previously was bound or
  *                      not.
  * @return              Previous run-queue.
  */
@@ -2569,7 +2595,7 @@ erts_bind_runq_proc(Process *p, int bind)
 }
 
 /**
- * Determine wether a process is bound to a run-queue or not.
+ * Determine whether a process is bound to a run-queue or not.
  *
  * @return              Returns a non-zero value if bound,
  *                      and zero of not bound.
@@ -2591,7 +2617,7 @@ erts_proc_runq_is_bound(Process *p)
  *                      value if the process is bound to the
  *                      run-queue.
  * @return              Pointer to the normal run-queue that
- *                      the process currently is assigend to.
+ *                      the process currently is assigned to.
  *                      A process is always assigned to a
  *                      normal run-queue.
  */

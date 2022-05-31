@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2004-2020. All Rights Reserved.
+%% Copyright Ericsson AB 2004-2022. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -49,7 +49,6 @@
 	 handle_kex_ecdh_init/2,
 	 handle_kex_ecdh_reply/2,
          parallell_gen_key/1,
-	 extract_public_key/1,
 	 ssh_packet/2, pack/2,
          valid_key_sha_alg/3,
 	 sign/3, sign/4,
@@ -61,6 +60,8 @@
 
 -behaviour(ssh_dbg).
 -export([ssh_dbg_trace_points/0, ssh_dbg_flags/1, ssh_dbg_on/1, ssh_dbg_off/1, ssh_dbg_format/2]).
+
+-define(MIN_DH_KEY_SIZE, 400).
 
 %%% For test suites
 -export([pack/3, adjust_algs_for_peer_version/2]).
@@ -88,32 +89,44 @@ clear_default_algorithms_env() ->
                                   | no_return() %  error(Reason)
                                   .
 default_algorithms() ->
+    FipsMode = crypto:info_fips(),
     case application:get_env(ssh, ?DEFAULT_ALGS) of
         undefined ->
-            %% Not cached, have to build the default, connection independent
-            %% set of algorithms:
-            Opts = get_alg_conf(),
-            Algs1 =
-                case proplists:get_value(preferred_algorithms, Opts) of
-                    undefined ->
-                        [{K,default_algorithms1(K)} || K <- algo_classes()];
-                    Algs0 ->
-                        {true,Algs01} = ssh_options:check_preferred_algorithms(Algs0),
-                        Algs01
-                end,
-            Algs =
-                case proplists:get_value(modify_algorithms, Opts) of
-                    undefined ->
-                        Algs1;
-                    Modifications ->
-                        ssh_options:initial_default_algorithms(Algs1, Modifications)
-                end,
-            application:set_env(ssh, ?DEFAULT_ALGS, Algs),
+            Algs = build_cache(),
+            application:set_env(ssh, ?DEFAULT_ALGS, {FipsMode,Algs}),
             Algs;
 
-        {ok,Algs} ->
+        {ok,{FipsMode,Algs}} ->
+            %% Cached, and the FIPS mode is the same now as when it was cached.
+            Algs;
+
+        {ok,{_OtherFipsMode,_Algs}} ->
+            %% Cached, but the FIPS mode has changed.
+            Algs = build_cache(),
+            application:set_env(ssh, ?DEFAULT_ALGS, {FipsMode,Algs}),
             Algs
     end.
+
+build_cache() ->
+    Opts = get_alg_conf(),
+    Algs1 =
+        case proplists:get_value(preferred_algorithms, Opts) of
+            undefined ->
+                [{K,default_algorithms1(K)} || K <- algo_classes()];
+            Algs0 ->
+                {true,Algs01} = ssh_options:check_preferred_algorithms(Algs0),
+                Algs01
+        end,
+    Algs =
+        case proplists:get_value(modify_algorithms, Opts) of
+            undefined ->
+                Algs1;
+            Modifications ->
+                ssh_options:initial_default_algorithms(Algs1, Modifications)
+        end,
+    Algs.
+
+
 
 get_alg_conf() ->
     [{T,L} || T <- [preferred_algorithms, modify_algorithms],
@@ -139,10 +152,17 @@ algo_two_spec_class(_) -> false.
 
 
 default_algorithms(Tag) ->
+    FipsMode = crypto:info_fips(),
     case application:get_env(ssh, ?DEFAULT_ALGS) of
         undefined ->
             default_algorithms1(Tag);
-        {ok,Algs} ->
+        {ok,{FipsMode,Algs}} ->
+            %% Cached, and the FIPS mode is the same now as when it was cached.
+            proplists:get_value(Tag, Algs, []);
+        {ok,{_OtherFipsMode,_Algs}} ->
+            %% Cached, but the FIPS mode has changed.
+            Algs = build_cache(),
+            application:set_env(ssh, ?DEFAULT_ALGS, {FipsMode,Algs}),
             proplists:get_value(Tag, Algs, [])
     end.
     
@@ -356,7 +376,8 @@ s2c(Key, Algs) -> x2y(server2client, Key, Algs).
 
 x2y(DirectionKey, Key, Algs) -> to_strings(proplists:get_value(DirectionKey, get_algs(Key,Algs))).
 
-get_algs(Key, Algs) -> proplists:get_value(Key, Algs, default_algorithms(Key)).
+get_algs(Key, {_FipsMode,Algs}) when is_list(Algs) ->  proplists:get_value(Key, Algs, default_algorithms(Key));
+get_algs(Key, Algs) when is_list(Algs) -> proplists:get_value(Key, Algs, default_algorithms(Key)).
 
 to_strings(L) -> lists:map(fun erlang:atom_to_list/1, L).
 
@@ -533,7 +554,7 @@ handle_kexdh_init(#ssh_msg_kexdh_init{e = E},
 	    {Public, Private} = generate_key(dh, [P,G,2*Sz]),
 	    K = compute_key(dh, E, Private, [P,G]),
 	    MyPrivHostKey = get_host_key(SignAlg, Opts),
-	    MyPubHostKey = extract_public_key(MyPrivHostKey),
+	    MyPubHostKey = ssh_file:extract_public_key(MyPrivHostKey),
             H = kex_hash(Ssh0, MyPubHostKey, sha(Kex), {E,Public,K}),
             case sign(H, SignAlg, MyPrivHostKey, Ssh0) of
                 {ok,H_SIG} ->
@@ -685,7 +706,7 @@ handle_kex_dh_gex_init(#ssh_msg_kex_dh_gex_init{e = E},
 	    if
 		1<K, K<(P-1) ->
 		    MyPrivHostKey = get_host_key(SignAlg, Opts),
-		    MyPubHostKey = extract_public_key(MyPrivHostKey),
+		    MyPubHostKey = ssh_file:extract_public_key(MyPrivHostKey),
                     H = kex_hash(Ssh0, MyPubHostKey, sha(Kex), {Min,NBits,Max,P,G,E,Public,K}),
                     case sign(H, SignAlg, MyPrivHostKey, Ssh0) of
                         {ok,H_SIG} ->
@@ -768,7 +789,7 @@ handle_kex_ecdh_init(#ssh_msg_kex_ecdh_init{q_c = PeerPublic},
     of
 	K ->
 	    MyPrivHostKey = get_host_key(SignAlg, Opts),
-	    MyPubHostKey = extract_public_key(MyPrivHostKey),
+	    MyPubHostKey = ssh_file:extract_public_key(MyPrivHostKey),
             H = kex_hash(Ssh0, MyPubHostKey, sha(Curve), {PeerPublic, MyPublic, K}),
             case sign(H, SignAlg, MyPrivHostKey, Ssh0) of
                 {ok,H_SIG} ->
@@ -905,24 +926,6 @@ call_KeyCb(F, Args, Opts) ->
     {KeyCb,KeyCbOpts} = ?GET_OPT(key_cb, Opts),
     UserOpts = ?GET_OPT(key_cb_options, Opts),
     apply(KeyCb, F, Args ++ [[{key_cb_private,KeyCbOpts}|UserOpts]]).
-
-extract_public_key(#'RSAPrivateKey'{modulus = N, publicExponent = E}) ->
-    #'RSAPublicKey'{modulus = N, publicExponent = E};
-extract_public_key(#'DSAPrivateKey'{y = Y, p = P, q = Q, g = G}) ->
-    {Y,  #'Dss-Parms'{p=P, q=Q, g=G}};
-extract_public_key(#'ECPrivateKey'{parameters = {namedCurve,OID},
-				   publicKey = Q}) when is_tuple(OID) ->
-    {#'ECPoint'{point=Q}, {namedCurve,OID}};
-extract_public_key({ed_pri, Alg, Pub, _Priv}) ->
-    {ed_pub, Alg, Pub};
-extract_public_key(#{engine:=_, key_id:=_, algorithm:=Alg} = M) ->
-    case {Alg, crypto:privkey_to_pubkey(Alg, M)} of
-        {rsa, [E,N]} ->
-            #'RSAPublicKey'{modulus = N, publicExponent = E};
-        {dss, [P,Q,G,Y]} ->
-            {Y, #'Dss-Parms'{p=P, q=Q, g=G}}
-    end.
-
 
 
 verify_host_key(#ssh{algorithms=Alg}=SSH, PublicKey, Digest, {AlgStr,Signature}) ->
@@ -1241,8 +1244,8 @@ alg_final(rcv, SSH0) ->
 
 
 select_all(CL, SL) when length(CL) + length(SL) < ?MAX_NUM_ALGORITHMS ->
-    %% algortihms only used by client
-    %% NOTE: an algorithm occuring more than once in CL will still be present
+    %% algorithms only used by client
+    %% NOTE: an algorithm occurring more than once in CL will still be present
     %%       in CLonly. This is not a problem for nice clients.
     CLonly = CL -- SL,
 
@@ -1485,6 +1488,9 @@ sign(SigData, HashAlg, #{algorithm:=SigAlg} = Key) ->
     crypto:sign(SigAlg, HashAlg, SigData, Key);
 sign(SigData, HashAlg,  #'DSAPrivateKey'{} = Key) ->
     mk_dss_sig(public_key:sign(SigData, HashAlg, Key));
+sign(SigData, HashAlg, Key = #'ECPrivateKey'{parameters = {namedCurve, Curve}})
+  when (Curve == ?'id-Ed25519') orelse (Curve == ?'id-Ed448') ->
+    public_key:sign(SigData, HashAlg, Key);
 sign(SigData, HashAlg, Key = #'ECPrivateKey'{}) ->
     DerEncodedSign =  public_key:sign(SigData, HashAlg, Key),
     #'ECDSA-Sig-Value'{r=R, s=S} = public_key:der_decode('ECDSA-Sig-Value', DerEncodedSign),
@@ -1510,7 +1516,7 @@ do_verify(PlainText, HashAlg, Sig, {_,  #'Dss-Parms'{}} = Key, _) ->
         _ ->
             false
     end;
-do_verify(PlainText, HashAlg, Sig, {#'ECPoint'{},_} = Key, _) ->
+do_verify(PlainText, HashAlg, Sig, {#'ECPoint'{},_} = Key, _) when HashAlg =/= undefined ->
     case Sig of
         <<?UINT32(Rlen),R:Rlen/big-signed-integer-unit:8,
           ?UINT32(Slen),S:Slen/big-signed-integer-unit:8>> ->
@@ -2025,38 +2031,27 @@ valid_key_sha_alg(private, #'RSAPrivateKey'{}, 'ssh-rsa'     ) -> true;
 valid_key_sha_alg(public, {_, #'Dss-Parms'{}}, 'ssh-dss') -> true;
 valid_key_sha_alg(private, #'DSAPrivateKey'{},  'ssh-dss') -> true;
 
-valid_key_sha_alg(public, {ed_pub, ed25519,_},  'ssh-ed25519') -> true;
-valid_key_sha_alg(private, {ed_pri, ed25519,_,_},'ssh-ed25519') -> true;
-valid_key_sha_alg(public, {ed_pub, ed448,_},    'ssh-ed448') -> true;
-valid_key_sha_alg(private, {ed_pri, ed448,_,_},  'ssh-ed448') -> true;
-
-valid_key_sha_alg(public, {#'ECPoint'{},{namedCurve,OID}}, Alg) when is_tuple(OID) ->
+valid_key_sha_alg(public, {#'ECPoint'{},{namedCurve,OID}}, Alg) ->
     valid_key_sha_alg_ec(OID, Alg);
-valid_key_sha_alg(private, #'ECPrivateKey'{parameters = {namedCurve,OID}}, Alg) when is_tuple(OID) ->
+valid_key_sha_alg(private, #'ECPrivateKey'{parameters = {namedCurve,OID}}, Alg) ->
     valid_key_sha_alg_ec(OID, Alg);
 valid_key_sha_alg(_, _, _) -> false.
-    
-valid_key_sha_alg_ec(OID, Alg) ->
-    try
-        Curve = public_key:oid2ssh_curvename(OID),
-        Alg == list_to_existing_atom("ecdsa-sha2-" ++ binary_to_list(Curve))
-    catch
-        _:_ -> false
-    end.
+
+
+valid_key_sha_alg_ec(OID, Alg) when is_tuple(OID) ->
+    {SshCurveType, _} = ssh_message:oid2ssh_curvename(OID),
+    Alg == binary_to_atom(SshCurveType);
+valid_key_sha_alg_ec(_, _) -> false.
+
     
 
 -dialyzer({no_match, public_algo/1}).
 
 public_algo(#'RSAPublicKey'{}) ->   'ssh-rsa';  % FIXME: Not right with draft-curdle-rsa-sha2
 public_algo({_, #'Dss-Parms'{}}) -> 'ssh-dss';
-public_algo({ed_pub, ed25519,_}) -> 'ssh-ed25519';
-public_algo({ed_pub, ed448,_}) -> 'ssh-ed448';
 public_algo({#'ECPoint'{},{namedCurve,OID}}) when is_tuple(OID) -> 
-    SshName = public_key:oid2ssh_curvename(OID),
-    try list_to_existing_atom("ecdsa-sha2-" ++ binary_to_list(SshName))
-    catch
-        _:_ -> undefined
-    end.
+    {SshCurveType, _} = ssh_message:oid2ssh_curvename(OID),
+    binary_to_atom(SshCurveType).
 
 
 sha('ssh-rsa') -> sha;
@@ -2141,10 +2136,10 @@ parallell_gen_key(Ssh = #ssh{keyex_key = {x, {G, P}},
     Ssh#ssh{keyex_key = {{Private, Public}, {G, P}}}.
 
 
-generate_key(ecdh = Algorithm, Args) ->
-    crypto:generate_key(Algorithm, Args);
-generate_key(Algorithm, Args) ->
-    {Public,Private} = crypto:generate_key(Algorithm, Args),
+generate_key(ecdh, Args) ->
+    crypto:generate_key(ecdh, Args);
+generate_key(dh, [P,G,Sz2]) ->
+    {Public,Private} = crypto:generate_key(dh, [P, G, max(Sz2,?MIN_DH_KEY_SIZE)] ),
     {crypto:bytes_to_integer(Public), crypto:bytes_to_integer(Private)}.
 
 

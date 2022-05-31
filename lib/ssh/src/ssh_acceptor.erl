@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2008-2020. All Rights Reserved.
+%% Copyright Ericsson AB 2008-2021. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -130,41 +130,76 @@ request_ownership(LSock, SockOwner) ->
     
 %%%----------------------------------------------------------------    
 acceptor_loop(Port, Address, Opts, ListenSocket, AcceptTimeout, SystemSup) ->
-    case accept(ListenSocket, AcceptTimeout, Opts) of
-        {ok,Socket} ->
-            {ok, {FromIP,FromPort}} = inet:peername(Socket), % Just in case of error in next line:
-            case handle_connection(SystemSup, Address, Port, Opts, Socket) of
-                {error,Error} ->
-                    catch close(Socket, Opts),
-                    handle_error(Error, Address, Port, FromIP, FromPort);
-                _ ->
-                    ok
-            end;
-        {error,Error} ->
-            handle_error(Error, Address, Port)
+    try
+        case accept(ListenSocket, AcceptTimeout, Opts) of
+            {ok,Socket} ->
+                PeerName = inet:peername(Socket),
+                MaxSessions = ?GET_OPT(max_sessions, Opts),
+                NumSessions = number_of_connections(SystemSup),
+                ParallelLogin = ?GET_OPT(parallel_login, Opts),
+                case handle_connection(Address, Port, PeerName, Opts, Socket, MaxSessions, NumSessions, ParallelLogin) of
+                    {error,Error} ->
+                        catch close(Socket, Opts),
+                        handle_error(Error, Address, Port, PeerName);
+                    _ ->
+                        ok
+                end;
+            {error,Error} ->
+                handle_error(Error, Address, Port, undefined)
+        end
+    catch
+        Class:Err:Stack ->
+            handle_error({error, {unhandled,Class,Err,Stack}}, Address, Port, undefined)
     end,
     ?MODULE:acceptor_loop(Port, Address, Opts, ListenSocket, AcceptTimeout, SystemSup).
 
 %%%----------------------------------------------------------------
-handle_connection(SystemSup, Address, Port, Options0, Socket) ->
-    MaxSessions = ?GET_OPT(max_sessions, Options0),
-    case number_of_connections(SystemSup) < MaxSessions of
-	true ->
-            Options = ?PUT_INTERNAL_OPT([{user_pid, self()}
-                                        ], Options0),
-            ssh_system_sup:start_subsystem(server,
-                                           #address{address = Address,
-                                                    port = Port,
-                                                    profile = ?GET_OPT(profile,Options)
-                                                   },
-                                           Socket,
-                                           Options);
-	false ->
-	    {error,{max_sessions,MaxSessions}}
-    end.
+handle_connection(_Address, _Port, _Peer, _Options, _Socket, MaxSessions, NumSessions, _ParallelLogin)
+  when NumSessions >= MaxSessions->
+    {error,{max_sessions,MaxSessions}};
+
+handle_connection(_Address, _Port, {error,Error}, _Options, _Socket, _MaxSessions, _NumSessions, _ParallelLogin) ->
+    {error,Error};
+
+handle_connection(Address, Port, _Peer, Options, Socket, _MaxSessions, _NumSessions, ParallelLogin)
+  when ParallelLogin == false ->
+    handle_connection(Address, Port, Options, Socket);
+
+handle_connection(Address, Port, _Peer, Options, Socket, _MaxSessions, _NumSessions, ParallelLogin)
+  when ParallelLogin == true ->
+    Ref = make_ref(),
+    Pid = spawn_link(
+            fun() ->
+                    process_flag(trap_exit, true),
+                    receive
+                        {start,Ref} ->
+                            handle_connection(Address, Port, Options, Socket)
+                    after 10000 ->
+                            {error, timeout2}
+                    end
+            end),
+    catch gen_tcp:controlling_process(Socket, Pid),
+    Pid ! {start,Ref},
+    ok.
+
+
+
+handle_connection(Address, Port, Options0, Socket) ->
+    Options = ?PUT_INTERNAL_OPT([{user_pid, self()}
+                                ], Options0),
+    ssh_system_sup:start_subsystem(server,
+                                   #address{address = Address,
+                                            port = Port,
+                                            profile = ?GET_OPT(profile,Options)
+                                           },
+                                   Socket,
+                                   Options).
 
 %%%----------------------------------------------------------------
-handle_error(Reason, ToAddress, ToPort) ->
+handle_error(Reason, ToAddress, ToPort, {ok, {FromIP,FromPort}}) ->
+    handle_error(Reason, ToAddress, ToPort, FromIP, FromPort);
+
+handle_error(Reason, ToAddress, ToPort, _) ->
     handle_error(Reason, ToAddress, ToPort, undefined, undefined).
 
 
@@ -227,14 +262,14 @@ ssh_dbg_on(tcp) -> dbg:tp(?MODULE, listen, 2, x),
                    dbg:tpl(?MODULE, close, 2, x);
                    
 ssh_dbg_on(connections) -> dbg:tp(?MODULE,  acceptor_init, 4, x),
-                           dbg:tpl(?MODULE, handle_connection, 5, x).
+                           dbg:tpl(?MODULE, handle_connection, 4, x).
 
 ssh_dbg_off(tcp) -> dbg:ctpg(?MODULE, listen, 2),
                     dbg:ctpl(?MODULE, accept, 3),
                     dbg:ctpl(?MODULE, close, 2);
 
 ssh_dbg_off(connections) -> dbg:ctp(?MODULE, acceptor_init, 4),
-                            dbg:ctp(?MODULE, handle_connection, 5).
+                            dbg:ctp(?MODULE, handle_connection, 4).
 
 ssh_dbg_format(tcp, {call, {?MODULE,listen, [Port,_Opts]}}, Stack) ->
     {skip, [{port,Port}|Stack]};
@@ -278,9 +313,9 @@ ssh_dbg_format(connections, {call, {?MODULE,acceptor_init, [_Parent, _SysSup, Ad
 ssh_dbg_format(connections, {return_from, {?MODULE,acceptor_init,4}, _Ret}) ->
     skip;
 
-ssh_dbg_format(connections, {call, {?MODULE,handle_connection,[_SystemSup,_Address,_Port,_Options,_Sock]}}) ->
+ssh_dbg_format(connections, {call, {?MODULE,handle_connection,[_Address,_Port,_Options,_Sock]}}) ->
     skip;
-ssh_dbg_format(connections, {return_from, {?MODULE,handle_connection,5}, {error,Error}}) ->
+ssh_dbg_format(connections, {return_from, {?MODULE,handle_connection,4}, {error,Error}}) ->
     ["Starting connection to server failed:\n",
      io_lib:format("Error = ~p", [Error])
     ].

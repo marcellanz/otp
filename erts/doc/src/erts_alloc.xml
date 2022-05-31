@@ -4,7 +4,7 @@
 <cref>
   <header>
     <copyright>
-      <year>2002</year><year>2018</year>
+      <year>2002</year><year>2022</year>
       <holder>Ericsson AB. All Rights Reserved.</holder>
     </copyright>
     <legalnotice>
@@ -638,7 +638,7 @@
             good fit strategy is selected for allocator
             <c><![CDATA[<S>]]></c>. When the good fit strategy is used, free
             blocks are placed in segregated free-lists. Each free-list
-            contains blocks of sizes in a specific range. The maxiumum block
+            contains blocks of sizes in a specific range. The maximum block
             search depth sets a limit on the maximum number of blocks to
             inspect in a free-list during a search for suitable block
             satisfying the request.</p>
@@ -781,10 +781,6 @@
             <seecref marker="#M_atags"><c>+M&lt;S&gt;atags</c></seecref> for a
             more complete description.</p>
         </item>
-        <tag><marker id="Mit"/><c>+Mit X</c></tag>
-        <item>
-          <p>Reserved for future use. Do <em>not</em> use this flag.</p>
-        </item>
       </taglist>
 
       <note>
@@ -838,6 +834,27 @@
             memory. The runtime system also fails with an out of memory
             condition if the user limit on the amount of locked memory is
             reached.</p>
+        </item>
+        <tag><marker id="Mdai"/><c><![CDATA[+Mdai max|<amount>]]></c></tag>
+        <item>
+          <p>
+            Set amount of dirty allocator instances used. Defaults to
+            <c>0</c>. That is, by default no instances will be used.
+            The maximum amount of instances equals the amount of dirty
+            CPU schedulers on the system.
+          </p>
+          <p>
+            By default, each normal scheduler thread has its own allocator
+            instance for each allocator. All other threads in the system,
+            including dirty schedulers, share one instance for each allocator.
+            By enabling dirty allocator instances, dirty schedulers will
+            get and use their own set of allocator instances. Note that these
+            instances are not exclusive to each dirty scheduler, but instead
+            shared among dirty schedulers. The more instances used the less
+            risk of lock contention on these allocator instances. Memory
+            consumption do however increase with increased amount of dirty
+            allocator instances.
+          </p>
         </item>
       </taglist>
     </section>

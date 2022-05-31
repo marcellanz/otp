@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2007-2018. All Rights Reserved.
+%% Copyright Ericsson AB 2007-2021. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -25,7 +25,7 @@
          dump_persistent_terms/0,
          create_persistent_terms/0,
          dump_global_literals/0]).
--compile(r20).
+-compile(r22).
 -include_lib("common_test/include/ct.hrl").
 
 n1_proc(N2,Creator) ->

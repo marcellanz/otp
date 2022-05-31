@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %% 
-%% Copyright Ericsson AB 2018-2021. All Rights Reserved.
+%% Copyright Ericsson AB 2018-2022. All Rights Reserved.
 %% 
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -27,6 +27,9 @@
          %% Proxy call
          pcall/3,
 
+         %% OS commands
+         os_cmd/1, os_cmd/2,
+
          %% Time stuff
          timestamp/0,
          tdiff/2,
@@ -38,6 +41,7 @@
          print/1, print/2,
 
          %% Generic 'has support' test function(s)
+         has_support_ipv4/0,
          has_support_ipv6/0,
 
          which_local_host_info/1,
@@ -72,18 +76,16 @@ pi(Node, Pid, Item) when is_pid(Pid) andalso is_atom(Item) ->
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-pcall(F, Timeout, Default)
-  when is_function(F, 0) andalso is_integer(Timeout) andalso (Timeout > 0) ->
-    {P, M} = erlang:spawn_monitor(fun() -> exit(F()) end),
-    receive
-        {'DOWN', M, process, P, Reply} ->
-            Reply
-    after Timeout ->
-            erlang:demonitor(M, [flush]),
-            exit(P, kill),
-            Default
-    end.
-    
+pcall(F, Timeout, Default) ->
+    kernel_test_lib:proxy_call(F, Timeout, Default).
+
+
+os_cmd(C) ->
+    kernel_test_lib:os_cmd(C).
+
+os_cmd(C, T) ->
+    kernel_test_lib:os_cmd(C, T).
+
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -121,6 +123,14 @@ print(F, A) ->
 
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+has_support_ipv4() ->
+    case which_local_addr(inet) of
+        {ok, _Addr} ->
+            ok;
+        {error, R1} ->
+            skip(f("Local Address eval failed: ~p", [R1]))
+    end.
 
 has_support_ipv6() ->
     case socket:is_supported(ipv6) of

@@ -1,7 +1,7 @@
 /*
  * %CopyrightBegin%
  * 
- * Copyright Ericsson AB 1996-2020. All Rights Reserved.
+ * Copyright Ericsson AB 1996-2022. All Rights Reserved.
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -61,15 +61,9 @@
 #include <time.h>
 #include <unistd.h>
 
-#if TIME_WITH_SYS_TIME
-# include <sys/time.h>
-# include <time.h>
-#else
-# if HAVE_SYS_TIME_H
+#include <time.h>
+#if HAVE_SYS_TIME_H
 #  include <sys/time.h>
-# else
-#  include <time.h>
-# endif
 #endif
 
 #endif
@@ -1103,7 +1097,7 @@ static char* ei_chk_strdup(char *s)
 }
 
 /*
- * Helper function that that:
+ * Helper function that:
  *
  * 1. Executes a function on a remote node
  *
@@ -1208,11 +1202,6 @@ void exit_free_flags_fields(int exit_status, struct call_flags* flags) {
 
 
 /* Constants and helper functions used by erl_start_sys */
-
-/* FIXME is this a case a vfork can be used? */
-#if !HAVE_WORKING_VFORK
-# define vfork fork
-#endif
 
 #ifndef MAXPATHLEN
 #define MAXPATHLEN 1024

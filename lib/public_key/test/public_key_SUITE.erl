@@ -1,7 +1,7 @@
 %%
 %% %CopyrightBegin%
 %%
-%% Copyright Ericsson AB 2008-2020. All Rights Reserved.
+%% Copyright Ericsson AB 2008-2022. All Rights Reserved.
 %%
 %% Licensed under the Apache License, Version 2.0 (the "License");
 %% you may not use this file except in compliance with the License.
@@ -62,8 +62,10 @@
          init_ec_pem_encode_generated/1,
          ec_pem_encode_generated/0,
          ec_pem_encode_generated/1,
-         encrypted_pem/0,
-         encrypted_pem/1,
+         encrypted_pem_pwdstring/0,
+         encrypted_pem_pwdstring/1,
+         encrypted_pem_pwdfun/0,
+         encrypted_pem_pwdfun/1,
          dh_pem/0,
          dh_pem/1,
          pkcs10_pem/0,
@@ -117,11 +119,16 @@
          gen_ec_param_prime_field/0,
          gen_ec_param_prime_field/1,
          gen_ec_param_char_2_field/0,
-         gen_ec_param_char_2_field/1
+         gen_ec_param_char_2_field/1,
+         cacerts_load/0, cacerts_load/1
         ]).
 
--define(TIMEOUT, 120000). % 2 min
+-export([list_cacerts/0]).  % debug exports
 
+
+-define(TIMEOUT, 120000). % 2 min
+-define(PASSWORD1, "1234abcd").
+-define(PASSWORD2, "4567efgh").
 
 %%--------------------------------------------------------------------
 %% Common Test interface functions -----------------------------------
@@ -154,17 +161,18 @@ all() ->
      pkix_test_data_all_default,
      pkix_test_data,
      short_cert_issuer_hash, 
-     short_crl_issuer_hash
+     short_crl_issuer_hash,
+     cacerts_load
     ].
 
 groups() -> 
-    [{pem_decode_encode, [], [dsa_pem, rsa_pem, rsa_pss_pss_pem, ec_pem, encrypted_pem,
+    [{pem_decode_encode, [], [dsa_pem, rsa_pem, rsa_pss_pss_pem, ec_pem,
+			      encrypted_pem_pwdstring, encrypted_pem_pwdfun,
 			      dh_pem, cert_pem, pkcs7_pem, pkcs10_pem, ec_pem2,
 			      rsa_priv_pkcs8, dsa_priv_pkcs8, ec_priv_pkcs8,
-                              eddsa_priv_pkcs8, eddsa_priv_rfc5958,
-                              ec_pem_encode_generated,
-                              gen_ec_param_prime_field, gen_ec_param_char_2_field
-                             ]},
+			      eddsa_priv_pkcs8, eddsa_priv_rfc5958,
+			      ec_pem_encode_generated, gen_ec_param_prime_field,
+			      gen_ec_param_char_2_field]},
      {sign_verify, [], [rsa_sign_verify, rsa_pss_sign_verify, dsa_sign_verify]}
     ].
 %%-------------------------------------------------------------------
@@ -451,37 +459,45 @@ ec_pem_encode_generated(_Config) ->
 
 %%--------------------------------------------------------------------
 
-encrypted_pem() ->
-    [{doc, "Encrypted PEM-file decode/encode"}].
-encrypted_pem(Config) when is_list(Config) ->
+encrypted_pem_pwdstring() ->
+    [{doc, "Encrypted PEM-file decode/encode with password string used"}].
+encrypted_pem_pwdstring(Config) when is_list(Config) ->
+    encrypted_pem(Config, ?PASSWORD1, ?PASSWORD2).
+
+encrypted_pem_pwdfun() ->
+    [{doc, "Encrypted PEM-file decode/encode with password fun used"}].
+encrypted_pem_pwdfun(Config) when is_list(Config) ->
+    encrypted_pem(Config, fun() -> ?PASSWORD1 end, fun() -> ?PASSWORD2 end).
+
+encrypted_pem(Config, Password1, Password2) ->
     Datadir = proplists:get_value(data_dir, Config),
 
     [{'RSAPrivateKey', DerRSAKey, not_encrypted}] =
-	erl_make_certs:pem_to_der(filename:join(Datadir, "client_key.pem")),
+        erl_make_certs:pem_to_der(filename:join(Datadir, "client_key.pem")),
 
     RSAKey = public_key:der_decode('RSAPrivateKey', DerRSAKey),
 
     Salt0 = crypto:strong_rand_bytes(8),
     Entry0 = public_key:pem_entry_encode('RSAPrivateKey', RSAKey,
-					 {{"DES-EDE3-CBC", Salt0}, "1234abcd"}),
-    RSAKey = public_key:pem_entry_decode(Entry0,"1234abcd"),
+                                         {{"DES-EDE3-CBC", Salt0}, ?PASSWORD1}),
+    RSAKey = public_key:pem_entry_decode(Entry0, Password1),
     Des3KeyFile = filename:join(Datadir, "des3_client_key.pem"),
     erl_make_certs:der_to_pem(Des3KeyFile, [Entry0]),
     [{'RSAPrivateKey', _, {"DES-EDE3-CBC", Salt0}}] =
-	erl_make_certs:pem_to_der(Des3KeyFile),
+        erl_make_certs:pem_to_der(Des3KeyFile),
 
     Salt1 = crypto:strong_rand_bytes(8),
     Entry1 = public_key:pem_entry_encode('RSAPrivateKey', RSAKey,
-					   {{"DES-CBC", Salt1}, "4567efgh"}),
+                                           {{"DES-CBC", Salt1}, ?PASSWORD2}),
     DesKeyFile = filename:join(Datadir, "des_client_key.pem"),
     erl_make_certs:der_to_pem(DesKeyFile, [Entry1]),
-    [{'RSAPrivateKey', _, {"DES-CBC", Salt1}} =Entry2] =
-	erl_make_certs:pem_to_der(DesKeyFile),
+    [{'RSAPrivateKey', _, {"DES-CBC", Salt1}} = Entry2] =
+        erl_make_certs:pem_to_der(DesKeyFile),
     {ok, Pem} = file:read_file(DesKeyFile),
     check_encapsulated_header(Pem),
-    true = check_entry_type(public_key:pem_entry_decode(Entry2, "4567efgh"),
-			     'RSAPrivateKey').
-    
+    true = check_entry_type(public_key:pem_entry_decode(Entry2, Password2),
+                             'RSAPrivateKey').
+
 %%--------------------------------------------------------------------
 
 dh_pem() ->
@@ -662,7 +678,7 @@ pkix(Config) when is_list(Config) ->
 
     true = lists:member(IssuerId, CaIds),
 
-    %% Should be normalized allready
+    %% Should be normalized already
     TestStr   = {rdnSequence, 
 		 [[{'AttributeTypeAndValue', {2,5,4,3},{printableString,"ERLANGCA"}}],
 		  [{'AttributeTypeAndValue', {2,5,4,3},{printableString," erlang  ca "}}]]},
@@ -783,7 +799,7 @@ pkix_path_validation(Config) when is_list(Config) ->
     % RsaPssKey = {public_key:generate_key({rsa, 1024, 65537}), pss_params(sha256)},
     RsaPssKey = {hardcode_rsa_key(1), pss_params(sha256)},
 
-    CaKPSS = {TrustedPSSCert,_} = erl_make_certs:make_cert([{key, RsaPssKey},
+    _CaKPSS = {TrustedPSSCert,_} = erl_make_certs:make_cert([{key, RsaPssKey},
                  {subject, [
                     {name, "RSASSA-PSS Public Key"},
                     {?'id-at-name', {printableString, "public_key"}},
@@ -794,7 +810,7 @@ pkix_path_validation(Config) when is_list(Config) ->
                     {org_unit, "testing dep"}
                        ]}
                 ]),
-    ChainPSSCert = {CertPSS, _} = erl_make_certs:make_cert([{issuer, {TrustedPSSCert,RsaPssKey}}]),
+    _ChainPSSCert = {CertPSS, _} = erl_make_certs:make_cert([{issuer, {TrustedPSSCert,RsaPssKey}}]),
     {ok, _} = public_key:pkix_path_validation(TrustedPSSCert, [CertPSS], []).
 
 pkix_path_validation_root_expired() ->
@@ -876,19 +892,19 @@ pkix_verify_hostname_subjAltName(Config) ->
     true =  public_key:pkix_verify_hostname(Cert, [{dns_id,"kb.example.org"}]),
     true =  public_key:pkix_verify_hostname(Cert, [{dns_id,"KB.EXAMPLE.ORG"}]),
 
-    %% Check that a dns_id does not match a DNS subjAltName wiht wildcard
+    %% Check that a dns_id does not match a DNS subjAltName with wildcard
     false =  public_key:pkix_verify_hostname(Cert, [{dns_id,"other.example.org"}]),
 
-    %% Check that a dns_id does match a DNS subjAltName wiht wildcard with matchfun
+    %% Check that a dns_id does match a DNS subjAltName with wildcard with matchfun
     MatchFun = {match_fun, public_key:pkix_verify_hostname_match_fun(https)},
     true =  public_key:pkix_verify_hostname(Cert, [{dns_id,"other.example.org"}], [MatchFun]),
     true =  public_key:pkix_verify_hostname(Cert, [{dns_id,"OTHER.EXAMPLE.ORG"}], [MatchFun]),
 
-    %% Check that a uri_id does not match a DNS subjAltName wiht wildcard
+    %% Check that a uri_id does not match a DNS subjAltName with wildcard
     false =  public_key:pkix_verify_hostname(Cert, [{uri_id,"https://other.example.org"}]),
     false =  public_key:pkix_verify_hostname(Cert, [{uri_id,"https://OTHER.EXAMPLE.ORG"}]),
 
-    %% Check that a dns_id does match a DNS subjAltName wiht wildcard with matchfun
+    %% Check that a dns_id does match a DNS subjAltName with wildcard with matchfun
     true =  public_key:pkix_verify_hostname(Cert, [{uri_id,"https://other.example.org"}], [MatchFun]),
     true =  public_key:pkix_verify_hostname(Cert, [{uri_id,"https://OTHER.EXAMPLE.ORG"}], [MatchFun]),
     true =  public_key:pkix_verify_hostname(Cert, [{uri_id,"https://OTHER.example.org"}], [MatchFun]),
@@ -1204,6 +1220,97 @@ gen_ec_param_char_2_field() ->
 gen_ec_param_char_2_field(Config) when is_list(Config) ->
     Datadir = proplists:get_value(data_dir, Config),
     do_gen_ec_param(filename:join(Datadir, "ec_key_param1.pem")).
+
+%%--------------------------------------------------------------------
+cacerts_load() ->
+    [{doc, "Basic tests of cacerts functionality"}].
+cacerts_load(Config) ->
+    Datadir = proplists:get_value(data_dir, Config),
+    {error, enoent} = public_key:cacerts_load("/dummy.file"),
+    %% Load default OS certs
+    %%    there is no default installed OS certs on netbsd
+    %%    can be installed with 'pkgin install mozilla-rootcerts'
+    IsNetBsd = element(2, os:type()) =:= netbsd,
+    OsCerts = try
+                  Certs = public_key:cacerts_get(),
+                  true = public_key:cacerts_clear(),
+                  Certs
+              catch _:{badmatch, {error, enoent}} when IsNetBsd -> netbsd
+              end,
+
+    false = public_key:cacerts_clear(),
+
+    %% Reload from file
+    ok = public_key:cacerts_load(filename:join(Datadir, "cacerts.pem")),
+    [_TestCert1, _TestCert2] = public_key:cacerts_get(),
+
+    %% Re-Load default OS certs
+    try
+        ok = public_key:cacerts_load(),
+        ct:log("~p: ~p~n", [os:type(), length(OsCerts)]),
+        OsCerts = public_key:cacerts_get(),
+        Ids = cert_info(OsCerts),
+        Check = fun(ShouldBeThere) ->
+                        lists:any(fun(#{id:=Id}) -> lists:prefix(ShouldBeThere, Id) end, Ids)
+                end,
+        case lists:partition(Check, ["digicert", "globalsign"]) of
+            {_, []} -> ok;
+            {_, Fail} ->
+                cert_info(OsCerts),
+                [] = Fail
+        end,
+        ok
+    catch _:{badmatch, {error, enoent}} when IsNetBsd ->
+            ok
+    end.
+
+cert_info([#cert{der=Der, otp=#'OTPCertificate'{tbsCertificate = C0}=Cert}|Rest]) when is_binary(Der) ->
+    #'OTPTBSCertificate'{subject = Subject, serialNumber = _Nr, issuer = Issuer0} = C0,
+    C = case public_key:pkix_is_self_signed(Cert) of
+            true  -> #{id => subject(Subject), ss => true};
+            false ->
+                case public_key:pkix_issuer_id(Cert, other) of
+                    {ok, {_IsNr, Issuer}} ->
+                        #{id => subject(Subject), ss => false, issuer => subject(Issuer)};
+                    {error, _} ->
+                        #{id => subject(Subject), ss => false, issuer => subject(Issuer0)}
+                end
+        end,
+    [C|cert_info(Rest)];
+cert_info([]) ->
+    [].
+
+
+subject(S) ->
+    string:lowercase(subject(public_key:pkix_normalize_name(S), "unknown")).
+
+subject({rdnSequence, Seq}, Def) ->
+    subject(Seq, Def);
+subject([[{'AttributeTypeAndValue', ?'id-at-commonName', Name0}]|_], _Def) ->
+    case Name0 of
+        {printableString, Name} -> Name;
+        {utf8String, Name} -> unicode:characters_to_list(Name);
+        Name -> Name
+    end;
+subject([[{'AttributeTypeAndValue', ?'id-at-organizationName', Name0}]|Rest], _Def) ->
+    Name = case Name0 of
+               {printableString, Name1} -> Name1;
+               {utf8String, Name1} -> unicode:characters_to_list(Name1);
+               Name1 -> Name1
+           end,
+    subject(Rest, Name);
+subject([_|R], Def) ->
+    subject(R, Def);
+subject([], Def) ->
+    Def.
+
+list_cacerts() ->
+    Certs = public_key:cacerts_get(),
+    %% io:format("~P~n",[Certs, 20]),
+    IO = fun(C, N) -> io:format("~.3w:~0p~n", [N,C]), N+1 end,
+    lists:foldl(IO, 0, lists:sort(cert_info(Certs))),
+    ok.
+
 
 %%--------------------------------------------------------------------
 %% Internal functions ------------------------------------------------
