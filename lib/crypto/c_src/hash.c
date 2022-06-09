@@ -234,28 +234,21 @@ ERL_NIF_TERM hash_final_xof_nif(ErlNifEnv* env, int argc, const ERL_NIF_TERM arg
 
     ASSERT(argc == 2);
     if (!enif_get_resource(env, argv[0], evp_md_ctx_rtype, (void**)&ctx))
-        goto bad_arg;
+        return EXCP_BADARG_N(env, 0, "Bad state");
     if (!enif_get_ulong(env, argv[1], &len))
-        goto bad_arg;
+        return EXCP_BADARG_N(env, 0, "Bad state");
     ASSERT(0 < len);
 
     if ((new_ctx = EVP_MD_CTX_new()) == NULL)
-        goto err;
+        assign_goto(ret, done, EXCP_ERROR(env, "Low-level call EVP_MD_CTX_new failed"));
     if (EVP_MD_CTX_copy(new_ctx, ctx->ctx) != 1)
-        goto err;
+        assign_goto(ret, done, EXCP_ERROR(env, "Low-level call EVP_MD_CTX_copy failed"));
     if ((outp = enif_make_new_binary(env, len>>3, &ret)) == NULL)
-        goto err;
+        assign_goto(ret, done, EXCP_ERROR(env, "Can't make a new binary"));
     if (EVP_DigestFinalXOF(new_ctx, outp, len>>3) != 1)
-        goto err;
+        assign_goto(ret, done, EXCP_ERROR(env, "Low-level call EVP_DigestFinalXOF failed"));
 
     ASSERT(len == (unsigned)EVP_MD_CTX_size(ctx->ctx));
-    goto done;
-
- bad_arg:
-    return enif_make_badarg(env);
-
- err:
-    ret = atom_notsup;
 
  done:
     if (new_ctx)

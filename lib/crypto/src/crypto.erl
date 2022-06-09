@@ -136,8 +136,8 @@
        hash_algorithms/0, pubkey_algorithms/0, cipher_algorithms/0,
        mac_algorithms/0, curve_algorithms/0, rsa_opts_algorithms/0,
        hash_info/1, hash_nif/2, hash_init_nif/1, hash_update_nif/2,
-       hash_final_nif/1, mac_nif/4, mac_init_nif/3, mac_update_nif/2,
-       mac_final_nif/1, cipher_info_nif/1, ng_crypto_init_nif/4,
+       hash_final_nif/1, hash_final_xof_nif/2, mac_nif/4, mac_init_nif/3,
+       mac_update_nif/2, mac_final_nif/1, cipher_info_nif/1, ng_crypto_init_nif/4,
        ng_crypto_update_nif/2, ng_crypto_update_nif/3, ng_crypto_final_nif/1,
        ng_crypto_get_data_nif/1, ng_crypto_one_time_nif/5,
        strong_rand_bytes_nif/1, strong_rand_range_nif/1, rand_uniform_nif/2,
@@ -421,7 +421,7 @@
 -type sha1() :: sha .
 -type sha2() :: sha224 | sha256 | sha384 | sha512 .
 -type sha3() :: sha3_224 | sha3_256 | sha3_384 | sha3_512 .
--type sha3_xof() :: shake128 .
+-type sha3_xof() :: shake128 | shake256 .
 -type blake2() :: blake2b | blake2s .
 
 -type compatibility_only_hash() :: md5 | md4 .
